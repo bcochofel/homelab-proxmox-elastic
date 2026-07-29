@@ -87,3 +87,29 @@ Not granted: `VM.Config.Cloudinit` and `Pool.Allocate` — no current template
 uses Proxmox-native cloud-init (`cloud_init = false`, autoinstall drives OS
 setup instead) or a resource pool, so neither privilege is exercised yet. Add
 them only if a template's config changes to need them.
+
+## Troubleshooting a failed build
+
+By default, when a build fails Packer stops the VM and deletes it — so
+there's nothing left to inspect. Rerun with `-on-error=ask` to pause instead:
+
+```bash
+packer build -on-error=ask .
+```
+
+On failure you'll get a `[c]lean up, [a]bort, [r]etry, or [b]uild debug`
+prompt; the VM stays up until you answer it. While it's paused, SSH in
+(same user/key as `variables.auto.pkrvars.hcl`) using the IP shown in the
+Proxmox UI for that VM ID, and check what actually failed:
+
+```bash
+ssh -i ~/.ssh/<your_key> <username>@<vm-ip> 'sudo cloud-init status --long'
+```
+
+`cloud-init status --long` names the specific stage/module that errored —
+much more direct than grepping `/var/log/cloud-init.log` or
+`/var/log/cloud-init-output.log` blind, since a `SUCCESS`-looking tail of
+either file (e.g. the final `modules-final` stage finishing with "0
+failures") doesn't mean the *overall* run succeeded; the actual failure can
+be in an earlier stage that scrolled past. Once you're done inspecting,
+answer the Packer prompt with `c` to clean up the VM.

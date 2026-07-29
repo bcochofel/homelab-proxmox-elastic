@@ -54,8 +54,8 @@ reserved for this cluster — additional nodes take the next free IP in range.
   still needs that path to know where to render compose files.
 - **Security is OFF for now** (`es_security_enabled: false`). Adding TLS/auth is
   a planned later exercise (local CA via `elasticsearch-certutil`, run-once play).
-- **`packer/` holds one subdirectory per OS template** (currently just
-  `ubuntu-24.04/`). Each is self-contained: its own `*.pkr.hcl` +
+- **`packer/` holds one subdirectory per OS template** (`ubuntu-24.04/`,
+  `ubuntu-26.04/`). Each is self-contained: its own `*.pkr.hcl` +
   `README.md` with build steps/ADRs. `packer/README.md` itself stays
   generic — don't add template-specific content there.
 - **Terraform and Ansible are decoupled** — no `local-exec` chaining. Run
