@@ -96,6 +96,17 @@ Get a green cluster first, then layer in security and automation.
   deny rule on `sops -d` restricts the agent, not direnv — both hold.
 - Never read, print, echo, `cat`, `head`, `grep`, or `sed` any `.envrc`,
   `secrets.yaml`, or the age key. Reference secrets by variable name only.
+- **`secrets.yaml` is meant to be committed** (it's ciphertext — SOPS
+  encrypts values in place) — `.sops.yaml` and `.gitleaks.toml` both assume
+  this. Never add `secrets.yaml`/`secrets.yml` to `.gitignore`; that was a
+  real bug here once (silently blocked the file from ever being committed)
+  and got fixed. Only decrypted output (`*.decrypted`, `*.dec.yaml`,
+  `secrets.dec.yaml`) should ever be ignored.
+- **Editing `secrets.yaml` needs no direnv action** — it reloads
+  automatically on next `cd` (or `direnv reload`). **Editing any `.envrc`**
+  makes direnv treat it as untrusted (`direnv: error .envrc is blocked`)
+  until re-approved — tell the human to run `make direnv-allow` (re-approves
+  all four: root, `packer/`, `terraform/`, `ansible/`).
 
 ## Proxmox auth — two tokens + a third for MCP
 
@@ -177,10 +188,69 @@ match. Use the `update-config` skill for future changes here.
 3. **Self-hosted GitHub Actions runner** — move `terraform apply` behind it; the
    runner holds the write credential, the AI agent never does. `apply` gated on
    merge/approval the agent cannot pass.
-4. **Proxmox MCP** (optional) — `gilby125/mcp-proxmox`, read-only mode + the
-   read-only PVE token. Vet the code and pin a commit before running. A
-   Metricbeat Proxmox module into our own Elastic cluster is the alternative
-   that also teaches the ingest side.
+4. **Proxmox MCP** (optional) — `gilby125/mcp-proxmox` (Node.js, stdio;
+   **not published on npm** — confirmed via `registry.npmjs.org`, so
+   `npx mcp-proxmox` alone won't resolve). Vet the code and pin a commit
+   before running, per the roadmap's original caution — this is a 49-star,
+   67-tool third-party repo with real Proxmox API access (several tools are
+   write/exec-capable — `migrate_vm`, `execute_vm_command`, etc. — gated by
+   `PROXMOX_ALLOW_ELEVATED`, but the real backstop is `mcp@pve!mcp`'s
+   read-only ACL below, which makes those calls fail at the Proxmox API
+   regardless of the app-level flag).
+
+   **`npx -y github:gilby125/mcp-proxmox#<sha>` does not work — confirmed by
+   running it.** It exits immediately (code 0, no error) instead of starting
+   the server, so `claude mcp list` shows "Failed to connect — Connection
+   closed." Root cause, isolated by running `node index.js` directly (which
+   works) vs. through the `bin` symlink `npx` creates in
+   `node_modules/.bin/mcp-proxmox` (which doesn't): `index.js` line ~4901
+   gates its entire startup behind
+   `if (process.argv[1] === fileURLToPath(import.meta.url))` — a common
+   ESM "run as main" guard, except `import.meta.url` resolves through the
+   symlink to the real file while `process.argv[1]` stays the symlink path,
+   so they never match and the server silently no-ops. This isn't
+   environment-specific — it'll fail the same way for anyone installing via
+   the package's own declared `bin` entry (i.e. `npx` or `npm i -g`).
+
+   **Working alternative:** clone at the pinned commit and point `command`
+   directly at the real `index.js` (no symlink involved):
+   ```bash
+   git clone https://github.com/gilby125/mcp-proxmox.git ~/.local/share/mcp-proxmox
+   cd ~/.local/share/mcp-proxmox && git checkout <pinned-commit-sha> && npm install
+   ```
+
+   Create the read-only token first, same `pveum`-on-the-node pattern as
+   Packer/Terraform (see "Running `pveum` from WSL2" in `docs/PACKER.md`):
+   ```bash
+   pveum role add McpReadOnlyRole -privs "VM.Audit,Datastore.Audit,Sys.Audit,Pool.Audit"
+   pveum user add mcp@pve --comment "Read-only MCP access"
+   pveum aclmod / -user mcp@pve -role McpReadOnlyRole
+   pveum user token add mcp@pve mcp --privsep 0
+   ```
+   Then wire it in (verified flag syntax via `claude mcp add --help` on this
+   install — `-e` for env vars, bare `--` before the command; the args after
+   `--` are spawned directly, no shell, so use the real absolute path — `~`
+   won't expand):
+   ```bash
+   claude mcp add proxmox \
+     -e PROXMOX_HOST=<pve-ip-or-hostname> \
+     -e PROXMOX_USER=mcp@pve \
+     -e PROXMOX_TOKEN_NAME=mcp \
+     -e PROXMOX_TOKEN_VALUE=<token-secret-from-the-pveum-command-above> \
+     -e PROXMOX_ALLOW_ELEVATED=false \
+     -e PROXMOX_VERIFY_TLS=false \
+     -- node /home/<you>/.local/share/mcp-proxmox/index.js
+   ```
+   Default scope is `local` (not committed) — same reasoning as GitHub MCP:
+   never `--scope project` with a literal secret in the args, since that
+   scope's `.mcp.json` is committed to git. `PROXMOX_ALLOW_ELEVATED=false`
+   is the app-level belt; `mcp@pve!mcp`'s read-only ACL above is the
+   suspenders (see "Proxmox auth"). `PROXMOX_VERIFY_TLS=false` matches this
+   homelab's self-signed cert, same posture as `proxmox_insecure` in
+   Terraform. Verify with `claude mcp list` (expect `✔ Connected`) — this
+   exact setup (commit `6186c71`) was confirmed working this way. A
+   Metricbeat Proxmox module into our own Elastic cluster is the
+   alternative that also teaches the ingest side.
 5. **Custom Elasticsearch MCP server** — written last, exposing `cluster_health`,
    `list_indices`, shard allocation. Design it after operating the cluster, so
    the tools reflect real use.

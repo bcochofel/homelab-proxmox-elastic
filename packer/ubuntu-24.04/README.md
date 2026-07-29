@@ -12,7 +12,7 @@ either value means rebuilding the template.
 ## Build
 
 ```bash
-cp variables.pkrvars.hcl.example variables.pkrvars.hcl   # fill in, gitignored
+cp variables.pkrvars.hcl.example variables.auto.pkrvars.hcl   # fill in, gitignored, auto-loaded
 make packer-init                 # non-mutating: packer init . (plugin download)
 cd packer/ubuntu-24.04 && packer build .   # run directly from this directory
 ```
@@ -58,7 +58,7 @@ ISO boot --autoinstall--> cloud-init (users, disk layout, packages,
 | `scripts/80-security-scans.sh` | Initializes the AIDE database + rkhunter baseline (see ADR-4) |
 | `scripts/99-cleanup-seal.sh` | Strips machine-id/SSH host keys/logs/cloud-init state before conversion to template |
 | `custom-ca/` | Drop custom root CA `.crt`/`.pem` files here; picked up automatically |
-| `variables.pkrvars.hcl.example` | Copy to `variables.pkrvars.hcl` (gitignored) and fill in |
+| `variables.pkrvars.hcl.example` | Copy to `variables.auto.pkrvars.hcl` (gitignored, auto-loaded by Packer) and fill in |
 
 ## Decisions (ADRs)
 
@@ -139,17 +139,17 @@ happen, not a harmless no-op.
 
 ## Variables reference
 
-Required (no default — set via `variables.pkrvars.hcl` or `PKR_VAR_*` env):
+Required (no default — set via `variables.auto.pkrvars.hcl` or `PKR_VAR_*` env):
 
 | Variable | Source in this repo |
 | --- | --- |
 | `proxmox_api_url`, `proxmox_api_token_id`, `proxmox_api_token_secret`, `proxmox_node`, `proxmox_skip_tls_verify` | `packer/.envrc` (`PKR_VAR_*`, decrypted from `secrets.yaml` via SOPS + direnv) |
-| `password_hash` | `variables.pkrvars.hcl` — generate with `mkpasswd -m sha-512 '<password>'` |
-| `ssh_private_key_file` | `variables.pkrvars.hcl` — must pair with a key in `ssh_authorized_keys` |
+| `password_hash` | `variables.auto.pkrvars.hcl` — generate with `mkpasswd -m sha-512 '<password>'` |
+| `ssh_private_key_file` | `variables.auto.pkrvars.hcl` — must pair with a key in `ssh_authorized_keys` |
 
 Everything else (VM sizing, packages, timezone, NTP, proxy, `vm_max_map_count`,
 `elastic_base_dir`, …) has a default in `variables.pkr.hcl` and only needs
-overriding in `variables.pkrvars.hcl` when it should differ from that default.
+overriding in `variables.auto.pkrvars.hcl` when it should differ from that default.
 
 ## Known coupling to watch
 

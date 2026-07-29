@@ -29,7 +29,21 @@ radius matches what it actually needs. Current token id:
 template under `packer/` — there's no per-template Proxmox identity.
 
 Create the role, user, and token from the Proxmox shell (or Datacenter ->
-Permissions in the UI):
+Permissions in the UI). `pveum` is part of `pve-manager` — it only exists on
+the Proxmox node itself, not on WSL2 or any client machine, so it can't be
+installed or run locally. Run it one of these ways:
+
+- **SSH into the node** (simplest, and this repo already assumes SSH access
+  to it — see `terraform/providers.tf`'s `ssh` block): `ssh root@<pve-host>`,
+  then paste the commands below; or non-interactively,
+  `ssh root@<pve-host> 'pveum role add PackerRole -privs "..."'` (mind the
+  quoting — the whole `pveum` command needs to survive as one argument to
+  `ssh`).
+- **Proxmox web UI -> Datacenter -> Permissions** (Roles / Users / API
+  Tokens tabs) — no CLI at all, same end result as every `pveum` command
+  below, point-and-click.
+- **Web UI -> node -> `>_ Shell`** — an in-browser terminal on the node
+  itself, if you'd rather not set up SSH.
 
 ```bash
 # 1. Role scoped to what the proxmox-iso builder actually does:
@@ -38,7 +52,7 @@ Permissions in the UI):
 pveum role add PackerRole -privs "VM.Allocate,VM.Audit,VM.Config.CDROM,VM.Config.CPU,\
 VM.Config.Disk,VM.Config.HWType,VM.Config.Memory,VM.Config.Network,VM.Config.Options,\
 VM.Console,VM.Monitor,VM.PowerMgmt,Datastore.AllocateSpace,Datastore.AllocateTemplate,\
-Datastore.Audit,Sys.Modify"
+Datastore.Audit,Sys.Modify,SDN.Use"
 
 # 2. User for the role (no password needed; auth is via API token only)
 pveum user add packer@pve --comment "Packer template builder"
@@ -67,6 +81,7 @@ as `PKR_VAR_proxmox_api_token_id` / `PKR_VAR_proxmox_api_token_secret`.
 | `Datastore.AllocateTemplate` | Convert the finished VM into a template |
 | `Datastore.Audit` | Read storage info (space checks, ISO lookup) |
 | `Sys.Modify` | Node-level changes the plugin makes around VM lifecycle (e.g. temporary firewall/network state during boot) |
+| `SDN.Use` | Attach the VM's NIC to `network_bridge` (`vmbr0`) — required once the bridge is managed as an SDN zone; without it VM creation fails with `403 Permission check failed (/sdn/zones/<zone>/vmbr0, SDN.Use)` |
 
 Not granted: `VM.Config.Cloudinit` and `Pool.Allocate` — no current template
 uses Proxmox-native cloud-init (`cloud_init = false`, autoinstall drives OS

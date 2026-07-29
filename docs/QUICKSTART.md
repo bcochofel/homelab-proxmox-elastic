@@ -74,6 +74,22 @@ Once `secrets.yaml` exists and your age key can decrypt it, `direnv allow`
 (via `make install`) is all that's needed for those variables to appear
 automatically when you `cd` into `packer/`, `terraform/`, etc.
 
+**After editing `secrets.yaml` itself:** no action needed — direnv re-runs
+`.envrc` (and re-decrypts) automatically the next time you `cd` into a
+directory, or immediately via `direnv reload`.
+
+**After editing any `.envrc` file** (root, `packer/`, `terraform/`, or
+`ansible/`): direnv treats a changed `.envrc` as untrusted and blocks it
+(`direnv: error .envrc is blocked`) until it's re-approved. Re-run:
+
+```bash
+make direnv-allow
+```
+
+This re-approves all four `.envrc` files at once (`direnv allow .` /
+`packer` / `terraform` / `ansible`), so it's safe to run any time you're not
+sure — it doesn't matter which one actually changed.
+
 ## 0. Prepare the local environment
 
 ```bash
@@ -90,7 +106,7 @@ the `.venv/` Ansible runs from.
 ```bash
 make packer-init
 cd packer/ubuntu-24.04
-cp variables.pkrvars.hcl.example variables.pkrvars.hcl   # fill in, gitignored
+cp variables.pkrvars.hcl.example variables.auto.pkrvars.hcl   # fill in, gitignored, auto-loaded
 packer build .
 ```
 
