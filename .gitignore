@@ -1,0 +1,128 @@
+# age private key lives outside the repo, but guard against copies
+*.agekey
+keys.txt
+
+# direnv cache
+.direnv/
+.envrc.local
+
+# any accidental decrypted output
+*.decrypted
+*.dec.yaml
+secrets.dec.yaml
+
+# Terraform
+*.tfstate
+*.tfstate.*
+*.tfvars
+*.tfvars.json
+!example.tfvars
+.terraform/
+**/.terraform/*
+#.terraform.lock.hcl
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+
+# Packer
+packer-manifest.json
+packer_cache/
+# https://www.packer.io/guides/hcl/variables
+# Exclude all .pkrvars.hcl files, which are likely to contain sensitive data,
+# such as password, private keys, and other secrets. These should not be part of
+# version control as they are data points which are potentially sensitive and
+# subject to change depending on the environment.
+#
+*.pkrvars.hcl
+*.auto.pkvars.hcl
+crash.log
+*.box
+
+# Secrets and credentials
+# NOTE: secrets.yaml itself is SOPS-encrypted and meant to be committed (see
+# .sops.yaml, .gitleaks.toml) — do not add it here.
+secrets/
+*.secret
+*.key
+*.pem
+*.cert
+*.p12
+*.pfx
+.env
+.env.local
+
+# Ansible
+*.retry
+.ansible/
+ansible.log
+ansible/inventory
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+venv/
+env/
+ENV/
+.venv/
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm
+.eslintcache
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Claude Code local settings (per-session allowlist, not shared policy)
+.claude/settings.local.json
+
+# Pre-commit
+.pre-commit-config.yaml.backup
+
+# Trivy
+.trivy/
+trivy-results.sarif
+
+# Temporary files
+*.tmp
+*.bak
+*.log
+.cache/
+
+# OS specific
+Thumbs.db
+
+# Elastic repo additions
+ansible/inventory/hosts.ini
+terraform/terraform.tfvars
