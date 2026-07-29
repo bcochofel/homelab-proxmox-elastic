@@ -77,7 +77,9 @@ is WSL2-specific; it should work unchanged on a bare Linux box. Claude Code
 must be launched from the repo root so `packer`, `terraform`,
 `ansible-playbook` (via `.venv/`), and `sops` resolve correctly. On WSL2
 specifically: if `which claude` returns a `/mnt/c/...` path, the install is
-on the Windows side and is wrong.
+on the Windows side and is wrong — reinstall natively inside WSL2 with
+`curl -fsSL https://claude.ai/install.sh | bash`, then confirm `which claude`
+resolves to a Linux path (e.g. `~/.local/bin/claude`) before relying on it.
 
 Pipeline order is fixed: **Packer → Terraform → Ansible**. Do not skip ahead.
 Get a green cluster first, then layer in security and automation.
@@ -159,6 +161,19 @@ match. Use the `update-config` skill for future changes here.
    `--transport http`, fine-grained PAT scoped to this repo only). Low effort,
    lets the agent read PR checks and workflow logs. Avoid the deprecated
    `@modelcontextprotocol/server-github` npm package.
+   `api.githubcopilot.com`'s OAuth endpoint doesn't support the dynamic
+   client registration Claude Code tries by default (`claude mcp add` alone
+   fails with "Incompatible auth server") — verified empirically, not a
+   guess. Use a PAT via header instead, and run the command from the repo
+   root (it's local-scope, keyed to cwd — running it from elsewhere silently
+   scopes the server to the wrong project):
+   `claude mcp add --transport http github https://api.githubcopilot.com/mcp/ --header "Authorization: Bearer <PAT>"`
+   `--header` writes the token *verbatim* into `~/.claude.json` — never use
+   `--scope project` with a literal token, since that scope's `.mcp.json` is
+   committed to git and would leak the PAT. Local scope (the default, this
+   repo's project entry in `~/.claude.json`, not committed) is the safe
+   choice for a single-machine setup like this one. Verify with
+   `claude mcp list` (expect `✔ Connected`).
 3. **Self-hosted GitHub Actions runner** — move `terraform apply` behind it; the
    runner holds the write credential, the AI agent never does. `apply` gated on
    merge/approval the agent cannot pass.
