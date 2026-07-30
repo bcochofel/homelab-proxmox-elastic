@@ -1,0 +1,149 @@
+# ----------------------------------------------------------------------------
+# Elastic observability cluster on Proxmox.
+# Packer template -> Terraform clones N+1 VMs -> generates Ansible inventory.
+# ----------------------------------------------------------------------------
+
+# Look up the template's VMID by name so tfvars can reference it by name.
+data "proxmox_virtual_environment_vms" "template" {
+  node_name = var.target_node
+
+  filter {
+    name   = "name"
+    values = [var.vm_template]
+  }
+}
+
+locals {
+  template_vmid = one(data.proxmox_virtual_environment_vms.template.vms).vm_id
+}
+
+# Elasticsearch nodes
+module "es" {
+  source   = "./modules/vm"
+  for_each = { for n in var.es_nodes : n.name => n }
+
+  name          = each.value.name
+  vmid          = each.value.vmid
+  target_node   = var.target_node
+  template_vmid = local.template_vmid
+
+  cores  = each.value.cores
+  memory = each.value.memory
+  disk   = each.value.disk
+
+  ip_cidr        = each.value.ip_cidr
+  gateway        = var.gateway
+  network_bridge = var.network_bridge
+  nameserver     = var.nameserver
+  searchdomain   = var.searchdomain
+
+  ciuser     = var.ciuser
+  cipassword = var.cipassword
+  sshkeys    = var.sshkeys
+
+  tags = ["terraform", "elastic", "elasticsearch"]
+}
+
+# Kibana node
+module "kibana" {
+  source = "./modules/vm"
+
+  name          = var.kibana_node.name
+  vmid          = var.kibana_node.vmid
+  target_node   = var.target_node
+  template_vmid = local.template_vmid
+
+  cores  = var.kibana_node.cores
+  memory = var.kibana_node.memory
+  disk   = var.kibana_node.disk
+
+  ip_cidr        = var.kibana_node.ip_cidr
+  gateway        = var.gateway
+  network_bridge = var.network_bridge
+  nameserver     = var.nameserver
+  searchdomain   = var.searchdomain
+
+  ciuser     = var.ciuser
+  cipassword = var.cipassword
+  sshkeys    = var.sshkeys
+
+  tags = ["terraform", "elastic", "kibana"]
+}
+
+# APM Server node
+module "apm_server" {
+  source = "./modules/vm"
+
+  name          = var.apm_server_node.name
+  vmid          = var.apm_server_node.vmid
+  target_node   = var.target_node
+  template_vmid = local.template_vmid
+
+  cores  = var.apm_server_node.cores
+  memory = var.apm_server_node.memory
+  disk   = var.apm_server_node.disk
+
+  ip_cidr        = var.apm_server_node.ip_cidr
+  gateway        = var.gateway
+  network_bridge = var.network_bridge
+  nameserver     = var.nameserver
+  searchdomain   = var.searchdomain
+
+  ciuser     = var.ciuser
+  cipassword = var.cipassword
+  sshkeys    = var.sshkeys
+
+  tags = ["terraform", "elastic", "apm_server"]
+}
+
+# OpenTelemetry demo node
+module "otel_demo" {
+  source = "./modules/vm"
+
+  name          = var.otel_demo_node.name
+  vmid          = var.otel_demo_node.vmid
+  target_node   = var.target_node
+  template_vmid = local.template_vmid
+
+  cores  = var.otel_demo_node.cores
+  memory = var.otel_demo_node.memory
+  disk   = var.otel_demo_node.disk
+
+  ip_cidr        = var.otel_demo_node.ip_cidr
+  gateway        = var.gateway
+  network_bridge = var.network_bridge
+  nameserver     = var.nameserver
+  searchdomain   = var.searchdomain
+
+  ciuser     = var.ciuser
+  cipassword = var.cipassword
+  sshkeys    = var.sshkeys
+
+  tags = ["terraform", "elastic", "otel_demo"]
+}
+
+# ----------------------------------------------------------------------------
+# Generate Ansible inventory.
+# Only hosts.ini is generated — group_vars/ stays hand-authored so Terraform
+# never clobbers tuning. Derives seed_hosts + initial_master_nodes from the IPs
+# Terraform knows, which is exactly what lets the cluster self-assemble.
+# ----------------------------------------------------------------------------
+resource "local_file" "ansible_inventory" {
+  content = templatefile("${path.root}/templates/inventory.ini.tftpl", {
+    es_nodes = [
+      for name, mod in module.es : {
+        name = mod.name
+        ip   = mod.ip
+      }
+    ]
+    kibana_name     = module.kibana.name
+    kibana_ip       = module.kibana.ip
+    apm_server_name = module.apm_server.name
+    apm_server_ip   = module.apm_server.ip
+    otel_demo_name  = module.otel_demo.name
+    otel_demo_ip    = module.otel_demo.ip
+    cluster_name    = var.cluster_name
+    ansible_user    = var.ansible_user
+  })
+  filename = "${path.root}/../ansible/inventory/hosts.ini"
+}

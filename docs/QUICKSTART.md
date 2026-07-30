@@ -105,13 +105,15 @@ the `.venv/` Ansible runs from.
 
 ```bash
 make packer-init
-cd packer/ubuntu-24.04
+cd packer/ubuntu-26.04
 cp variables.pkrvars.hcl.example variables.auto.pkrvars.hcl   # fill in, gitignored, auto-loaded
 packer build .
 ```
 
-See [`packer/ubuntu-24.04/README.md`](../packer/ubuntu-24.04/README.md) for
-what the template bakes in and why.
+All six VMs in the topology (see [`README.md`](../README.md)) clone from this
+one template. See [`packer/ubuntu-26.04/README.md`](../packer/ubuntu-26.04/README.md)
+for what it bakes in and why (`packer/ubuntu-24.04/` still exists and builds,
+but is no longer what Terraform's `vm_template` default points at).
 
 ## 2. Clone VMs and generate the inventory (Terraform)
 
@@ -125,9 +127,11 @@ terraform plan    # review before applying
 terraform apply
 ```
 
-This clones the Packer template into the ES/Kibana VMs, assigns static IPs,
-and writes `ansible/inventory/hosts.ini` — see
-[`docs/TERRAFORM.md`](TERRAFORM.md).
+This clones the Packer template into all six VMs (es-01/02/03, kibana,
+apm-server, otel-demo), assigns static IPs, and writes
+`ansible/inventory/hosts.ini` with one group per role — see
+[`docs/TERRAFORM.md`](TERRAFORM.md), including the `pveum` commands to
+create the `terraform@pve` token if you haven't already.
 
 ## 3. Configure the cluster (Ansible)
 
@@ -137,7 +141,8 @@ cd ansible
 ../.venv/bin/ansible-playbook site.yml
 ```
 
-Runs bootstrap -> Elasticsearch -> Kibana -> health check. See
+Runs bootstrap -> Elasticsearch -> Kibana -> APM Server -> OTel demo ->
+Elastic Agent (all hosts) -> health check. See
 [`docs/ANSIBLE.md`](ANSIBLE.md) for the role/playbook breakdown and the
 bootstrap lifecycle (`es_bootstrap_cluster: true` -> `false` after first
 green).
@@ -146,6 +151,8 @@ green).
 
 - Kibana: `http://192.168.68.33:5601`
 - Elasticsearch: `http://192.168.68.30:9200`
+- APM Server: `http://192.168.68.34:8200`
+- OTel demo frontend: `http://192.168.68.35:8080`
 
 ## Adding a node
 
