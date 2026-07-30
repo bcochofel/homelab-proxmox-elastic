@@ -51,8 +51,10 @@ reserved for this cluster — additional nodes take the next free IP in range
   `[apm_server]`, and `[otel_demo]` groups for the other three roles — one
   group per VM role, all derived the same way.
 - **Elastic Agent runs standalone, not Fleet-managed, on every VM** (deb
-  package + a hand-rendered `elastic-agent.yml`, both via Ansible), including
-  the OTel demo VM. Reason: Fleet Server needs TLS to enroll agents against,
+  package pre-installed but disabled by Packer, then Ansible renders
+  `elastic-agent.yml` and enables/starts it — see ADR-8 in
+  `packer/ubuntu-26.04/README.md`), including the OTel demo VM. Reason:
+  Fleet Server needs TLS to enroll agents against,
   and TLS is deliberately deferred to reach a green cluster fast (see
   "Security sequencing" and `TODO.md`). Migrating these agents to
   Fleet-managed mode is itself a planned step *after* Fleet Server comes up
@@ -97,6 +99,22 @@ reserved for this cluster — additional nodes take the next free IP in range
   approach applies (`vm.max_map_count`, ulimits, `/opt/elastic`) — see
   `packer/ubuntu-26.04/README.md`'s ADRs for how that template got stripped
   down relative to 24.04.
+- **`ubuntu-26.04`'s initrd has no networking at all** (dracut's network
+  modules are explicitly omitted, `scripts/15-fix-initrd-network.sh`). Not
+  optional hardening — the first real `terraform apply` against this
+  template had all six VMs come up on the wrong (DHCP) IP because dracut's
+  default hostonly mode bundled network modules that raced cloud-init's
+  static-IP netplan config and won, since the initrd's own DHCP client
+  brought the NIC up first and blocked the rename cloud-init needed. See
+  ADR-6 in that README for the full incident before touching this.
+- **Every VM installs Trivy and self-scans daily** (`vm_max_map_count`
+  sibling: `scripts/30-install-trivy.sh`, ADR-7 in the same README) —
+  pinned version, DB pre-cached at build time, cron overwrites a JSON
+  report at `trivy_report_path` (default `/var/log/trivy/report.json`).
+  This is deliberately not the AIDE/rkhunter-style tooling dropped
+  elsewhere in that template (see its ADR-3) — Trivy is stateless, no
+  per-clone baseline to initialize. Shipping that JSON into Elasticsearch
+  is still open, tracked in `TODO.md`.
 - **Terraform and Ansible are decoupled** — no `local-exec` chaining. Run
   `terraform apply` (from `terraform/`) then `ansible-playbook site.yml`
   (from `ansible/`) as two separate, explicit commands.

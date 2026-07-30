@@ -19,8 +19,11 @@ make packer-init                 # non-mutating: packer init . (plugin download)
 cd packer/ubuntu-26.04 && packer build .   # run directly from this directory
 ```
 
-Provisioning is a single step: `scripts/20-install-docker.sh` installs Docker
-CE + Compose, then `scripts/99-cleanup-seal.sh` seals the template.
+Provisioning runs three scripts in order, then seals the template:
+`scripts/15-fix-initrd-network.sh` (no networking in the initrd — see
+ADR-6), `scripts/20-install-docker.sh` (Docker CE + Compose), and
+`scripts/30-install-trivy.sh` (OS-package vulnerability scanning — see
+ADR-7). `scripts/99-cleanup-seal.sh` runs last and seals the template.
 
 Proxmox user/token setup is shared across templates — see
 [`../../docs/PACKER.md`](../../docs/PACKER.md). If a build fails, see
@@ -32,14 +35,18 @@ instead of guessing.
 
 A `proxmox-iso` source boots an Ubuntu 26.04 Server ISO, autoinstalls via
 cloud-init (`http/user-data.yml.tpl` + `http/meta-data.yml` served over the
-Packer HTTP server), then Docker is installed before the image is sealed and
+Packer HTTP server), then the initrd is stripped of networking, Docker is
+installed, Trivy is installed with its daily scan scheduled, and Elastic
+Agent is pre-installed (left disabled) — before the image is sealed and
 converted to a Proxmox template. Terraform later clones this template per
-node (see `docs/TERRAFORM.md`, once written).
+node (see `docs/TERRAFORM.md`).
 
 ```text
 ISO boot --autoinstall--> cloud-init (users, disk layout, packages,
   sysctl/limits, SSH hardening)
-    --provisioners--> Docker install --provisioners--> cleanup & seal
+    --provisioners--> initrd network fix --> Docker install --> Trivy install
+      --> Elastic Agent install (disabled)
+        --provisioners--> cleanup & seal
 ```
 
 ## File map
@@ -52,7 +59,10 @@ ISO boot --autoinstall--> cloud-init (users, disk layout, packages,
 | `versions.pkr.hcl` | Packer core + `hashicorp/proxmox` plugin version pins |
 | `http/user-data.yml.tpl` | cloud-init autoinstall: disk layout (LVM), users, SSH hardening, **OS config for Elastic Stack** |
 | `http/meta-data.yml` | cloud-init meta-data (mostly empty; required by the datasource) |
+| `scripts/15-fix-initrd-network.sh` | Omits dracut's network modules so nothing DHCPs the NIC before cloud-init's netplan config runs (see ADR-6) |
 | `scripts/20-install-docker.sh` | Docker CE + Compose plugin, qemu-guest-agent |
+| `scripts/30-install-trivy.sh` | Installs Trivy (pinned), pre-caches its vulnerability DB, runs an OS-package-only scan for a build-log summary, schedules the daily full-scope scan (see ADR-7) |
+| `scripts/35-install-elastic-agent.sh` | Installs Elastic Agent (pinned) and disables the service — Ansible configures and enables it later (see ADR-8) |
 | `scripts/99-cleanup-seal.sh` | Strips machine-id/SSH host keys/logs/cloud-init state before conversion to template |
 | `variables.pkrvars.hcl.example` | Copy to `variables.auto.pkrvars.hcl` (gitignored, auto-loaded by Packer) and fill in |
 
@@ -173,6 +183,162 @@ variables) rather than resurrected from a commented block, since a
 referenced-but-missing script/variable is a build break waiting to happen,
 not a harmless no-op.
 
+### ADR-6: No networking in the initrd (interface-rename race)
+
+**Context.** First real `terraform apply` against this template: all six
+cloned VMs came up reachable, but on the *wrong* IP — DHCP-assigned
+(`192.168.68.65`-`.70`) instead of the static IPs Terraform's cloud-init
+`ipconfig0` configured (`192.168.68.30`-`.35`). `cloud-init status --long`
+on a clone showed `extended_status: degraded done` with:
+`Unable to rename interfaces: [['<mac>', 'eth0', None, None]] due to
+errors: ['[busy] Error renaming mac=<mac> from ens18 to eth0']`.
+
+Root cause, confirmed via `journalctl -b`: Proxmox's auto-generated
+cloud-init network-config always names the interface generically (`eth0`)
+regardless of the guest's real predictable name (`ens18` here), so
+cloud-init's netplan renderer has to rename `ens18` → `eth0` to satisfy
+that name before it can apply the static address. That rename requires the
+interface to be down. But dracut's default **hostonly** mode had bundled
+the full network module stack (`40network`, `11systemd-networkd`, etc.)
+into the initrd — not because this VM's boot path needs it (root is local
+LVM, no NFS root, no network unlock), but because the *build machine*
+(which needs internet to install packages) has an active NIC, and hostonly
+detection includes modules based on the build host, not the target's
+actual boot requirements. That initrd-stage `systemd-networkd` DHCPs
+`ens18` and brings it up within ~3 seconds of boot — long before
+`cloud-init-network.service` runs — so by the time cloud-init tries the
+rename, the interface is already up and "busy," the rename fails, and the
+static config never applies.
+
+**Decision.** `scripts/15-fix-initrd-network.sh` drops
+`/etc/dracut.conf.d/99-omit-network.conf` (`omit_dracutmodules` for every
+network-related dracut module) and regenerates the initramfs
+(`dracut --force --regenerate-all`) before Docker/Trivy install. With no
+networking at all in the initrd, cloud-init's netplan config is the first
+thing to ever touch the NIC, so the rename always succeeds.
+
+**Alternative considered, rejected for now.** Bypass Proxmox's
+auto-generated network-config entirely by uploading a custom per-VM
+cloud-init network-config as a Proxmox snippet (`cicustom`), authored
+without `set-name` so the static IP applies directly to `ens18` — no
+rename, ever. More robust long-term (doesn't depend on what dracut decides
+to bundle), but spans Terraform too: needs snippet storage, a
+Terraform-generated file per VM (each has a different static IP), and the
+SSH file-upload path `terraform/providers.tf`'s `ssh` block already flagged
+as configured-but-unused. Revisit if the dracut-omit fix ever proves
+fragile (e.g. a future ISO's hostonly detection pulls in network modules
+through some path this omit list doesn't cover).
+
+**Consequences.** `scripts/15-fix-initrd-network.sh` fails the build hard
+(exits 1) if the regenerated initrd still contains the network module,
+rather than silently shipping a template with the bug still latent — this
+class of failure only shows up after a real `terraform apply`, so it's
+worth catching at build time. If a future Ubuntu ISO drops or renames any
+of the dracut modules currently listed in the omit set, this script's
+verification step is what will surface that (as a build failure, not a
+mystery IP later).
+
+### ADR-7: Trivy for OS-package vulnerability scanning (not the ADR-3 tooling)
+
+**Context.** ADR-3 above deliberately dropped AIDE/rkhunter/chkrootkit/lynis
+because they need a baseline initialized on first real boot (per-clone),
+and doing that generically in a shared template means either a stale
+baseline (initialized against the template, not the clone) or a noisy
+first scan on every clone (everything flagged "new"). `TODO.md`'s Phase 4
+also calls for OS/package vulnerability scanning of this template — a
+different, *stateless* problem: Trivy diffs installed packages against a
+vulnerability database fresh on every run, with no baseline to initialize
+and no per-clone coupling.
+
+**Decision.** `scripts/30-install-trivy.sh` installs Trivy (pinned to the
+same `TRIVY_VERSION` the Makefile uses for the IaC-scanning binary, `0.72.0`
+by default — see `variables.pkr.hcl`) and pre-downloads its vulnerability DB
+into the template (`--download-db-only`, so a clone's first scan doesn't
+need to fetch it). Build-time visibility and the persisted daily report are
+deliberately two different scans with two different scopes:
+
+- **Build-time (this script, right now):** one scan to a throwaway temp
+  file, scoped to `--scanners vuln --pkg-types os` (Trivy's defaults are
+  `vuln,secret` scanners and `os,library` package types), summarized with
+  `jq` into a single line — `Total: N (CRITICAL: n, HIGH: n, MEDIUM: n,
+  LOW: n, UNKNOWN: n)` — printed to the Packer build log. This is `TODO.md`
+  Phase 4's "Step 1, just show results" half. The temp file is discarded;
+  this scan exists purely for the summary, not for persisted data.
+- **Daily cron (`/etc/cron.d/trivy-scan`, 03:00):** Trivy's full default
+  scan (secrets + OS + library CVEs, no scoping flags), JSON written to
+  `trivy_report_path`, overwritten each run. This is the comprehensive
+  report meant for later ingestion into Elasticsearch (see `TODO.md`) —
+  broader is better there, since nothing needs to read it during a build.
+
+The build-time scan needs its narrower scope precisely because it's
+printed live: an early attempt scanning everything (Trivy's defaults) made
+the build log worse, not better. The default secret scanner flags
+`/etc/ssh/ssh_host_*_key` as `AsymmetricPrivateKey` findings, and the
+default `library` package type walks every language-specific dependency
+tree embedded in installed binaries — `docker-buildx`, `docker-compose`,
+and Trivy itself each bundle their own Go module list — printing a full
+per-binary CVE table for each one. A second attempt kept that same
+Trivy-native `--format table` output but scoped to OS packages only; still
+too much for a build log, since it prints one row per vulnerable package
+with full title/description text. Landed on computing the one-line count
+with `jq` instead. Every invocation (build-time and cron) also uses
+`--quiet` — without it, the DB download's progress bar redraws the same
+line hundreds of times via carriage returns, which Packer's log capture
+can't collapse and instead prints as one giant spam line; `--quiet` only
+suppresses that and startup log lines, not actual scan results (confirmed
+via `trivy --help`: "suppress progress bar and log output").
+
+**Consequences.** Every VM in the topology self-scans daily (full scope)
+and keeps only the latest JSON report locally, while every Packer build
+prints an immediate OS-package summary — together, `TODO.md` Phase 4's
+"Step 1 plus the cron/JSON half of Step 2," done at the Packer/OS level
+rather than via an Ansible-managed schedule. There's no build-time baseline
+file at `trivy_report_path` itself anymore (only the daily cron writes
+there) — a freshly-cloned VM has no report until its first 03:00 run. What's
+still missing is the last piece of Step 2: shipping that JSON into
+Elasticsearch (e.g. an Elastic Agent custom log/file input reading
+`trivy_report_path`) for actual CVE dashboards in Kibana — that remains
+open, tracked in `TODO.md`.
+
+### ADR-8: Elastic Agent package pre-installed here, left disabled
+
+**Context.** `CLAUDE.md` documents Elastic Agent as standalone (not
+Fleet-managed), installed and configured entirely by Ansible: a deb package
+plus a hand-rendered `elastic-agent.yml`, both via Ansible. Once Docker and
+Trivy were already being baked in here (ADRs above), pre-installing the
+Elastic Agent *package* the same way was an obvious speed win — six VMs no
+longer each need to fetch and install it during the Ansible run. The
+complication: unlike Docker or Trivy, Elastic Agent's version isn't
+independent of the rest of this project — it needs to track
+`ansible/group_vars/all.yml`'s `stack_version` for compatibility with the
+ES cluster it ends up monitoring. Baking a specific version into an
+immutable template creates exactly the kind of duplicated version state
+`stack_version`'s single-source-of-truth design (see `CLAUDE.md`) exists to
+avoid.
+
+**Decision.** `scripts/35-install-elastic-agent.sh` downloads the pinned
+`.deb` for `elastic_agent_version` directly from
+`artifacts.elastic.co/downloads/beats/elastic-agent/` (same "exact pinned
+version, no repo-latest drift" approach as Trivy's install script), installs
+it, then immediately stops and disables the systemd service — nothing runs
+until Ansible's (not yet built) `elastic_agent` role renders
+`elastic-agent.yml` and enables it, once an ES cluster actually exists to
+connect to. `elastic_agent_version` defaults to `9.4.2`, matching
+`ansible/group_vars/all.yml`'s `stack_version` at the time this was
+written — same manual-sync trade-off ADR-1 already accepts for
+`elastic_base_dir`.
+
+**Consequences.** Unlike `elastic_base_dir` drift (harmless — worst case,
+compose renders to the wrong-but-consistent path), an Elastic Agent version
+drift is a real compatibility risk: the first time `stack_version` gets
+bumped and rolled out via playbook *without* also rebuilding this template,
+every already-cloned VM's pre-installed agent silently stays on the old
+version. **The `elastic_agent` Ansible role (not yet built — see
+`TODO.md`'s Phase 1) must check the installed Elastic Agent version against
+`stack_version` and reinstall via the same `.deb` URL pattern above if
+they've drifted** — Packer can only get new clones right going forward, it
+can't fix VMs cloned from an already-stale template.
+
 ## Variables reference
 
 Required (no default — set via `variables.auto.pkrvars.hcl` or `PKR_VAR_*` env):
@@ -184,9 +350,9 @@ Required (no default — set via `variables.auto.pkrvars.hcl` or `PKR_VAR_*` env
 | `ssh_private_key_file` | `variables.auto.pkrvars.hcl` — must pair with a key in `ssh_authorized_keys` |
 
 Everything else (VM sizing, packages, timezone, NTP, `vm_max_map_count`,
-`elastic_base_dir`, …) has a default in `variables.pkr.hcl` and only needs
-overriding in `variables.auto.pkrvars.hcl` when it should differ from that
-default.
+`elastic_base_dir`, `install_trivy`, `trivy_version`, `trivy_report_path`,
+…) has a default in `variables.pkr.hcl` and only needs overriding in
+`variables.auto.pkrvars.hcl` when it should differ from that default.
 
 ## Known coupling to watch
 
@@ -197,3 +363,8 @@ default.
   generated inventory, since Ansible connects as that user.
 - `boot_iso_file` points at a specific Ubuntu ISO filename already uploaded
   to the Proxmox node's ISO storage — it is not fetched by Packer.
+- `trivy_report_path` (default `/var/log/trivy/report.json`) is where every
+  VM's daily cron writes its latest scan — whatever eventually reads this
+  path to ship reports into Elasticsearch (Ansible/Elastic Agent, per
+  `TODO.md`) needs to agree on this same path, the same way
+  `elastic_base_dir` is kept in sync today.
