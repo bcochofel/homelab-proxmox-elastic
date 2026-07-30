@@ -1,9 +1,10 @@
 # CLAUDE.md
 
 Project context for Claude Code sessions — **not for humans**: never link or
-reference this file from `README.md`, `CONTRIBUTING.md`, or anything under
-`docs/`. A human contributor's path is root `README.md` -> `docs/*.md` ->
-`CONTRIBUTING.md`. The per-tool READMEs (`packer/README.md`,
+reference this file from `README.md`, `CONTRIBUTING.md`, `TODO.md`, or
+anything under `docs/`. A human contributor's path is root `README.md` ->
+`docs/*.md` -> `CONTRIBUTING.md`, with `TODO.md` as the standing
+phase-status tracker alongside them. The per-tool READMEs (`packer/README.md`,
 `terraform/README.md`, `ansible/README.md`) are deliberately just one-line
 pointers to their `docs/<TOOL>.md` — details live in `docs/PACKER.md`,
 `docs/TERRAFORM.md`, `docs/ANSIBLE.md`, `docs/QUICKSTART.md`, and
@@ -310,7 +311,9 @@ Fleet Server then deploys on the Kibana VM, and the standalone Elastic Agents
 already running on all six VMs (installed in phase 1) get re-enrolled as
 Fleet-managed — that migration, and switching APM ingestion from the
 self-managed APM Server to the Fleet-managed APM integration, are both part
-of this same later phase, not phase 1.
+of this same later phase, not phase 1. See [`TODO.md`](TODO.md) for current
+phase status and what comes after (OSQuery, Proxmox-host telemetry, Trivy
+CVE scanning into Elasticsearch, eventual SIEM).
 
 ## Custom Trivy/Checkov policies for Proxmox (`policies/`)
 
@@ -417,12 +420,7 @@ cd ansible && ../.venv/bin/ansible-playbook site.yml
 
 ## Open / deferred work
 
-- TLS + auth, then Fleet Server on the Kibana VM, then migrating the
-  standalone Elastic Agents (all six VMs) to Fleet-managed mode.
-- A Metricbeat/Elastic Agent module for the *Proxmox host* (the MS-01
-  hypervisor itself) — distinct from the per-guest-VM Elastic Agents (OS +
-  Docker metrics/logs), which are in scope now and configured standalone by
-  Ansible. See roadmap step 4's Proxmox MCP alternative note.
-
-Not on this list: Logstash. That's a deliberate decision, not a deferral —
-see "Decisions that are deliberate."
+Tracked in [`TODO.md`](TODO.md), not duplicated here — it's the one place
+phase status lives (TLS/auth, Fleet, OSQuery, Proxmox-host telemetry, Trivy
+CVE scanning, SIEM, and the agent-tooling roadmap). Check items off there as
+they land instead of editing this file or `README.md`.

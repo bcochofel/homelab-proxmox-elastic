@@ -70,12 +70,10 @@ metrics/logs.
 - [`docs/ANSIBLE.md`](docs/ANSIBLE.md) — cluster configuration.
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — environment setup, branching, commit
   conventions, and versioning for contributors.
+- [`TODO.md`](TODO.md) — phase-by-phase roadmap and current status.
 
-## Next steps (deferred)
+## Next steps
 
-- TLS + auth (`certutil`-generated local CA, run-once play), then Fleet
-  Server on the Kibana VM, then migrating the standalone Elastic Agents
-  (and APM ingestion) to Fleet-managed mode.
-- A Metricbeat/Elastic Agent module for the *Proxmox host* itself (the
-  MS-01 hypervisor) — distinct from the per-guest-VM Elastic Agents above,
-  which are already in scope and Ansible-configured.
+See [`TODO.md`](TODO.md) for the full, checkbox-tracked roadmap (TLS/auth,
+Fleet, OSQuery, vulnerability scanning, SIEM, and more) — kept as the one
+place status lives instead of duplicated here.
