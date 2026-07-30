@@ -37,26 +37,40 @@ Roughly in dependency order — later phases build on earlier ones.
 
 - [ ] OSQuery Manager integration via Fleet-managed Elastic Agent (needs
       Phase 3)
+- [ ] Elastic Defend + Auditd Manager integrations via Fleet-managed Elastic
+      Agent (needs Phase 3) — the AIDE/rkhunter replacements: Defend gives
+      FIM (file integrity monitoring) + basic host protection, Auditd
+      Manager gives kernel-level audit events for rootkit/tamper detection
+      and forensic-style querying after the fact
 - [ ] Metricbeat/Elastic Agent module for the *Proxmox host* itself (the
       MS-01 hypervisor) — distinct from the per-guest-VM agents in Phase 1
 - [ ] Trivy vulnerability/CVE scanning of the Packer template — the actual
       OS image/packages baked into the VM, not the Terraform IaC scan that
       already runs in pre-commit today. Staged in two steps:
   - [ ] Step 1 (no dependency on Terraform/Ansible): run Trivy against the
-        built template and just show the results — doable right after
-        Packer, today
+        built template and just print a summary of vulnerabilities, if
+        any — doable right after Packer, today
   - [ ] Step 2 (needs Terraform + Ansible from Phase 1): once Terraform
         creates the VMs, Ansible configures Trivy to run on a recurring
-        schedule (cron) and ship results into Elasticsearch, so they're
-        queryable in Kibana instead of a one-off scan output
+        schedule (cron), output JSON, and ship it into Elasticsearch so
+        it's queryable via CVE dashboards in Kibana instead of one-off
+        scan output
+- [ ] Osquery-based package/CVE correlation — a DIY learning exercise
+      cross-referencing osquery's package-inventory tables against the
+      Trivy CVE data landed in Step 2 above, done by hand in
+      ES|QL/Kibana rather than reaching for a pre-built integration (needs
+      OSQuery Manager and Trivy Step 2, both above)
 
 ## Phase 5 — Elastic Security / SIEM
 
-- [ ] A proper Elastic Security (SIEM) platform: detection rules, alerting,
-      case management. Sequenced last on purpose — rules are only as good
-      as the telemetry feeding them, so this depends on Fleet-managed
-      agents (Phase 3) and OSQuery + host + vulnerability data (Phase 4)
-      actually flowing first.
+- [ ] Elastic Security app + MITRE ATT&CK-mapped detection rules, built on
+      top of telemetry already being collected once security/TLS is on
+      (Phase 2) — no new data sources needed to start, just rules against
+      what's already flowing (agent OS/Docker metrics, APM traces, and
+      whatever of Defend/Auditd/OSQuery from Phase 4 is live by then).
+      Sequenced last on purpose — rules are only as good as the telemetry
+      feeding them, so this depends on Fleet-managed agents (Phase 3) and
+      OSQuery + host + vulnerability data (Phase 4) actually flowing first.
 
 ## Tooling / agent integrations (parallel track, doesn't block the above)
 

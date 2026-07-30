@@ -10,7 +10,7 @@ pointers to their `docs/<TOOL>.md` — details live in `docs/PACKER.md`,
 `docs/TERRAFORM.md`, `docs/ANSIBLE.md`, `docs/QUICKSTART.md`, and
 `CONTRIBUTING.md` (branching, commits, versioning, pre-commit), all of
 which now exist. `packer/<template>/README.md` (e.g.
-`packer/ubuntu-24.04/README.md`) is the one exception that holds real
+`packer/ubuntu-26.04/README.md`) is the one exception that holds real
 content — per-template build steps and ADRs — since `packer/` is designed
 to hold multiple OS templates over time and its own README stays generic.
 
@@ -54,7 +54,7 @@ reserved for this cluster — additional nodes take the next free IP in range
   package + a hand-rendered `elastic-agent.yml`, both via Ansible), including
   the OTel demo VM. Reason: Fleet Server needs TLS to enroll agents against,
   and TLS is deliberately deferred to reach a green cluster fast (see
-  "Security sequencing" and the phased roadmap). Migrating these agents to
+  "Security sequencing" and `TODO.md`). Migrating these agents to
   Fleet-managed mode is itself a planned step *after* Fleet Server comes up
   on the Kibana VM — not part of this change.
 - **APM Server is its own VM/compose stack, self-managed** (not the
@@ -106,7 +106,7 @@ reserved for this cluster — additional nodes take the next free IP in range
   them directly, by hand, from their own directory. That keeps the one
   write path a single explicit command instead of a wrapper anyone (or any
   agent) could invoke without thinking, and it's the same command GitHub
-  Actions will run later (see "Phased roadmap," step 3).
+  Actions will run later (see "Agent-tooling rollout," step 3).
 
 ## Execution environment & tooling decisions
 
@@ -174,7 +174,7 @@ Committed, shared policy — distinct from `.claude/settings.local.json`
 checks run freely; anything that actually writes infrastructure requires a
 human click every time, for now — the plan is to move those write ops (`packer
 build`, `terraform apply`, `ansible-playbook`) behind a GitHub Actions runner
-later (see "Phased roadmap," step 3), at which point the agent won't hold the
+later (see "Agent-tooling rollout," step 3), at which point the agent won't hold the
 write credential at all.
 
 - **Allow (no prompt):** `pre-commit run`/`install`; `terraform
@@ -202,14 +202,15 @@ The `Read()` denies are the real boundary for secret material; the
 determined rephrasing of the same command can still slip past a prefix
 match. Use the `update-config` skill for future changes here.
 
-## Phased roadmap
+## Agent-tooling rollout
 
-1. **Local apply** — Packer→Terraform→Ansible working end-to-end with SOPS +
-   direnv; reach a green cluster across all six VMs (ES x3, Kibana, APM
-   Server, OTel demo), each running its standalone Elastic Agent.
-   `xpack.security.enabled: false` intentionally, TLS deferred, Fleet Server
-   not yet in the picture.
-2. **GitHub MCP** — official remote server (`https://api.githubcopilot.com/mcp/`,
+Detailed technical notes behind the "Tooling / agent integrations" checklist
+in `TODO.md` — that file tracks status (done/not done), this section holds
+the how-to and the gotchas. Numbered by rollout order within this track only;
+these numbers are independent of `TODO.md`'s infra `Phase N` headings and
+don't correspond to them.
+
+1. **GitHub MCP** — official remote server (`https://api.githubcopilot.com/mcp/`,
    `--transport http`, fine-grained PAT scoped to this repo only). Low effort,
    lets the agent read PR checks and workflow logs. Avoid the deprecated
    `@modelcontextprotocol/server-github` npm package.
@@ -226,13 +227,10 @@ match. Use the `update-config` skill for future changes here.
    repo's project entry in `~/.claude.json`, not committed) is the safe
    choice for a single-machine setup like this one. Verify with
    `claude mcp list` (expect `✔ Connected`).
-3. **Self-hosted GitHub Actions runner** — move `terraform apply` behind it; the
-   runner holds the write credential, the AI agent never does. `apply` gated on
-   merge/approval the agent cannot pass.
-4. **Proxmox MCP** (optional) — `gilby125/mcp-proxmox` (Node.js, stdio;
+2. **Proxmox MCP** (optional) — `gilby125/mcp-proxmox` (Node.js, stdio;
    **not published on npm** — confirmed via `registry.npmjs.org`, so
    `npx mcp-proxmox` alone won't resolve). Vet the code and pin a commit
-   before running, per the roadmap's original caution — this is a 49-star,
+   before running — this is a 49-star,
    67-tool third-party repo with real Proxmox API access (several tools are
    write/exec-capable — `migrate_vm`, `execute_vm_command`, etc. — gated by
    `PROXMOX_ALLOW_ELEVATED`, but the real backstop is `mcp@pve!mcp`'s
@@ -297,7 +295,10 @@ match. Use the `update-config` skill for future changes here.
    exact setup (commit `6186c71`) was confirmed working this way. A
    Metricbeat Proxmox module into our own Elastic cluster is the
    alternative that also teaches the ingest side.
-5. **Custom Elasticsearch MCP server** — written last, exposing `cluster_health`,
+3. **Self-hosted GitHub Actions runner** — move `terraform apply` behind it; the
+   runner holds the write credential, the AI agent never does. `apply` gated on
+   merge/approval the agent cannot pass.
+4. **Custom Elasticsearch MCP server** — written last, exposing `cluster_health`,
    `list_indices`, shard allocation. Design it after operating the cluster, so
    the tools reflect real use.
 
@@ -351,7 +352,7 @@ that cost real debugging time once already:
 
 `CKV_PROXMOX_1` (require `bios = "ovmf"`) is currently skip-listed in
 `checkov.yaml` — a real, deliberately deferred gap (the module doesn't set
-`bios` yet), same posture as `xpack.security` below.
+`bios` yet), same posture as `xpack.security` above.
 
 ## Standing rules
 
