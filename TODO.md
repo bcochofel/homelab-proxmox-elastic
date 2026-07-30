@@ -63,11 +63,11 @@ Roughly in dependency order — later phases build on earlier ones.
       already runs in pre-commit today. Done at the Packer/OS level
       (`packer/ubuntu-26.04/scripts/30-install-trivy.sh`, see its ADR-7):
       every VM installs a pinned Trivy, pre-caches its vulnerability DB at
-      build time, runs one scan immediately (a visible summary table in the
-      Packer build log, plus a JSON baseline report), and then a daily cron
-      (`trivy rootfs`) that overwrites that same JSON report at a path set
-      by the `trivy_report_path` Packer variable (default
-      `/var/log/trivy/report.json`)
+      build time, prints a one-line OS-package CVE summary to the Packer
+      build log immediately, and schedules a daily cron (`trivy rootfs`,
+      full scope — OS + libraries + secrets) that writes the comprehensive
+      JSON report to a path set by the `trivy_report_path` Packer variable
+      (default `/var/log/trivy/report.json`)
   - [ ] Still open: ship that per-VM JSON into Elasticsearch (e.g. an
         Elastic Agent custom log/file input reading `trivy_report_path`)
         so it's queryable via CVE dashboards in Kibana instead of sitting

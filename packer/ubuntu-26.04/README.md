@@ -61,7 +61,7 @@ ISO boot --autoinstall--> cloud-init (users, disk layout, packages,
 | `http/meta-data.yml` | cloud-init meta-data (mostly empty; required by the datasource) |
 | `scripts/15-fix-initrd-network.sh` | Omits dracut's network modules so nothing DHCPs the NIC before cloud-init's netplan config runs (see ADR-6) |
 | `scripts/20-install-docker.sh` | Docker CE + Compose plugin, qemu-guest-agent |
-| `scripts/30-install-trivy.sh` | Installs Trivy (pinned), pre-caches its vulnerability DB, runs an initial scan (visible summary + baseline report), schedules the daily scan (see ADR-7) |
+| `scripts/30-install-trivy.sh` | Installs Trivy (pinned), pre-caches its vulnerability DB, runs an OS-package-only scan for a build-log summary, schedules the daily full-scope scan (see ADR-7) |
 | `scripts/35-install-elastic-agent.sh` | Installs Elastic Agent (pinned) and disables the service — Ansible configures and enables it later (see ADR-8) |
 | `scripts/99-cleanup-seal.sh` | Strips machine-id/SSH host keys/logs/cloud-init state before conversion to template |
 | `variables.pkrvars.hcl.example` | Copy to `variables.auto.pkrvars.hcl` (gitignored, auto-loaded by Packer) and fill in |
@@ -252,29 +252,53 @@ and no per-clone coupling.
 
 **Decision.** `scripts/30-install-trivy.sh` installs Trivy (pinned to the
 same `TRIVY_VERSION` the Makefile uses for the IaC-scanning binary, `0.72.0`
-by default — see `variables.pkr.hcl`), pre-downloads its vulnerability DB
+by default — see `variables.pkr.hcl`) and pre-downloads its vulnerability DB
 into the template (`--download-db-only`, so a clone's first scan doesn't
-need to fetch it), **runs one scan immediately** (JSON written to
-`trivy_report_path` as a build-time baseline, plus a human-readable table
-printed straight to the Packer build log — this is `TODO.md` Phase 4's
-"Step 1, just show results" half), and installs `/etc/cron.d/trivy-scan`:
-daily at 03:00, `trivy rootfs / --format json --output <trivy_report_path>`,
-overwriting the same path each run (both variables set via Packer —
-`install_trivy`, `trivy_version`, `trivy_report_path`). Every Trivy
-invocation uses `--quiet` — without it, the DB download's progress bar
-redraws the same line hundreds of times via carriage returns, which
-Packer's log capture can't collapse and instead prints as one giant
-spam line; `--quiet` only suppresses that and startup log lines, not the
-actual results table (confirmed via `trivy --help`: "suppress progress bar
-and log output").
+need to fetch it). Build-time visibility and the persisted daily report are
+deliberately two different scans with two different scopes:
 
-**Consequences.** Every VM in the topology self-scans daily and keeps only
-the latest JSON report locally — this is `TODO.md` Phase 4's "Step 1 plus
-the cron/JSON half of Step 2," done at the Packer/OS level rather than via
-an Ansible-managed schedule. What's still missing is the last piece of
-Step 2: shipping that JSON into Elasticsearch (e.g. an Elastic Agent custom
-log/file input reading `trivy_report_path`) for actual CVE dashboards in
-Kibana — that remains open, tracked in `TODO.md`.
+- **Build-time (this script, right now):** one scan to a throwaway temp
+  file, scoped to `--scanners vuln --pkg-types os` (Trivy's defaults are
+  `vuln,secret` scanners and `os,library` package types), summarized with
+  `jq` into a single line — `Total: N (CRITICAL: n, HIGH: n, MEDIUM: n,
+  LOW: n, UNKNOWN: n)` — printed to the Packer build log. This is `TODO.md`
+  Phase 4's "Step 1, just show results" half. The temp file is discarded;
+  this scan exists purely for the summary, not for persisted data.
+- **Daily cron (`/etc/cron.d/trivy-scan`, 03:00):** Trivy's full default
+  scan (secrets + OS + library CVEs, no scoping flags), JSON written to
+  `trivy_report_path`, overwritten each run. This is the comprehensive
+  report meant for later ingestion into Elasticsearch (see `TODO.md`) —
+  broader is better there, since nothing needs to read it during a build.
+
+The build-time scan needs its narrower scope precisely because it's
+printed live: an early attempt scanning everything (Trivy's defaults) made
+the build log worse, not better. The default secret scanner flags
+`/etc/ssh/ssh_host_*_key` as `AsymmetricPrivateKey` findings, and the
+default `library` package type walks every language-specific dependency
+tree embedded in installed binaries — `docker-buildx`, `docker-compose`,
+and Trivy itself each bundle their own Go module list — printing a full
+per-binary CVE table for each one. A second attempt kept that same
+Trivy-native `--format table` output but scoped to OS packages only; still
+too much for a build log, since it prints one row per vulnerable package
+with full title/description text. Landed on computing the one-line count
+with `jq` instead. Every invocation (build-time and cron) also uses
+`--quiet` — without it, the DB download's progress bar redraws the same
+line hundreds of times via carriage returns, which Packer's log capture
+can't collapse and instead prints as one giant spam line; `--quiet` only
+suppresses that and startup log lines, not actual scan results (confirmed
+via `trivy --help`: "suppress progress bar and log output").
+
+**Consequences.** Every VM in the topology self-scans daily (full scope)
+and keeps only the latest JSON report locally, while every Packer build
+prints an immediate OS-package summary — together, `TODO.md` Phase 4's
+"Step 1 plus the cron/JSON half of Step 2," done at the Packer/OS level
+rather than via an Ansible-managed schedule. There's no build-time baseline
+file at `trivy_report_path` itself anymore (only the daily cron writes
+there) — a freshly-cloned VM has no report until its first 03:00 run. What's
+still missing is the last piece of Step 2: shipping that JSON into
+Elasticsearch (e.g. an Elastic Agent custom log/file input reading
+`trivy_report_path`) for actual CVE dashboards in Kibana — that remains
+open, tracked in `TODO.md`.
 
 ### ADR-8: Elastic Agent package pre-installed here, left disabled
 

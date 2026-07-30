@@ -69,16 +69,40 @@ mkdir -p /var/cache/trivy
 /usr/local/bin/trivy rootfs --download-db-only --cache-dir /var/cache/trivy --quiet / \
   || log_warn "DB pre-download failed (no network during build?) — each clone's cron will fetch it on first run instead."
 
-log_info "Running an initial vulnerability scan — build-time baseline report, plus the summary below."
-/usr/local/bin/trivy rootfs --cache-dir /var/cache/trivy --quiet --format json --output "${TRIVY_REPORT_PATH}" / \
-  || log_warn "Initial JSON report generation failed — the daily cron will still attempt one on schedule."
-/usr/local/bin/trivy rootfs --cache-dir /var/cache/trivy --quiet --format table / \
-  || log_warn "Initial summary table generation failed."
+# Build-time scan only: scoped to --scanners vuln --pkg-types os (Trivy's
+# defaults are "vuln,secret" scanners and "os,library" package types) purely
+# so the one-line summary below stays fast and readable in the Packer build
+# log. The daily cron further down deliberately does NOT use this scoping —
+# it runs Trivy's full default scan (secrets + OS + library CVEs) so the
+# persisted JSON report is the comprehensive one, meant for later ingestion
+# into Elasticsearch (see TODO.md). Without this build-time scoping, a first
+# attempt at this made the build log worse instead of better: the secret
+# scanner flags /etc/ssh/ssh_host_*_key as "AsymmetricPrivateKey" findings,
+# and "library" scanning walks every language-specific dependency tree
+# embedded in installed binaries (docker-buildx, docker-compose, and Trivy
+# itself all bundle their own Go module list), printing a full CVE table
+# per binary.
+log_info "Running an initial vulnerability scan (OS packages only) for a build-time summary..."
+TMP_BUILD_SCAN="$(mktemp)"
+/usr/local/bin/trivy rootfs --cache-dir /var/cache/trivy --quiet --scanners vuln --pkg-types os --format json --output "$TMP_BUILD_SCAN" / \
+  || log_warn "Build-time scan failed — the daily cron will still attempt a full scan on schedule."
+
+if [ -s "$TMP_BUILD_SCAN" ]; then
+  SUMMARY="$(jq -r '
+    [.Results[]?.Vulnerabilities[]?.Severity] as $sevs |
+    "Total: \($sevs | length) (CRITICAL: \([$sevs[] | select(.=="CRITICAL")] | length), HIGH: \([$sevs[] | select(.=="HIGH")] | length), MEDIUM: \([$sevs[] | select(.=="MEDIUM")] | length), LOW: \([$sevs[] | select(.=="LOW")] | length), UNKNOWN: \([$sevs[] | select(.=="UNKNOWN")] | length))"
+  ' "$TMP_BUILD_SCAN")"
+  log_info "OS package vulnerability summary: ${SUMMARY}"
+else
+  log_warn "No scan output found to summarize."
+fi
+rm -f "$TMP_BUILD_SCAN"
 
 log_info "Installing daily cron job -> ${TRIVY_REPORT_PATH}"
 cat >/etc/cron.d/trivy-scan <<EOF
-# Managed by Packer (scripts/30-install-trivy.sh) — daily OS-package
-# vulnerability scan; JSON report is overwritten on each run.
+# Managed by Packer (scripts/30-install-trivy.sh) — daily full vulnerability
+# scan (OS packages, libraries, and secrets); JSON report is overwritten on
+# each run.
 0 3 * * * root mkdir -p "${REPORT_DIR}" && /usr/local/bin/trivy rootfs --format json --output "${TRIVY_REPORT_PATH}" --cache-dir /var/cache/trivy --quiet / >>/var/log/trivy-cron.log 2>&1
 EOF
 chmod 644 /etc/cron.d/trivy-scan
