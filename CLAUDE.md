@@ -18,14 +18,23 @@ to hold multiple OS templates over time and its own README stays generic.
 Elastic Stack observability cluster on Proxmox (MS-01), built with the
 Packer -> Terraform -> Ansible pipeline:
 
-```
+```text
 Packer (template) -> Terraform (clone VMs + generate inventory) -> Ansible (configure)
 ```
 
-Topology: 3 Elasticsearch nodes (es-01/02/03, 192.168.68.30-32) + 1 Kibana
-(192.168.68.33). Each VM runs a single-container Docker Compose stack; the three
-ES containers form one real cluster across the VMs. `192.168.68.30-39` is
-reserved for this cluster — additional nodes take the next free IP in range.
+Topology: 3 Elasticsearch nodes (es-01/02/03, 192.168.68.30-32), 1 Kibana
+(192.168.68.33 — also runs Fleet Server, once TLS lands), 1 APM Server
+(192.168.68.34), and 1 OpenTelemetry demo VM (192.168.68.35, the upstream
+[`open-telemetry/opentelemetry-demo`](https://github.com/open-telemetry/opentelemetry-demo)
+compose stack, reconfigured to export traces to the APM Server instead of
+its bundled Jaeger/Grafana stack). Each Elastic Stack VM (ES, Kibana, APM
+Server) runs a single-container Docker Compose stack; the three ES
+containers form one real cluster across their VMs. Every VM in the topology,
+including the OTel demo one, also runs a standalone Elastic Agent for OS +
+Docker metrics/logs. No Logstash — deliberately out of scope, not just
+deferred (see "Decisions that are deliberate"). `192.168.68.30-39` is
+reserved for this cluster — additional nodes take the next free IP in range
+(`.36`-`.39` currently free).
 
 ## Decisions that are deliberate (do not "fix" these)
 
@@ -37,7 +46,29 @@ reserved for this cluster — additional nodes take the next free IP in range.
 - **Cluster formation is inventory-derived.** Terraform writes node IPs into
   `ansible/inventory/hosts.ini`; the ES `.env` template builds `SEED_HOSTS` and
   `INITIAL_MASTER_NODES` from the `elasticsearch` group. This is why the cluster
-  self-assembles.
+  self-assembles. The generated inventory also carries `[kibana]`,
+  `[apm_server]`, and `[otel_demo]` groups for the other three roles — one
+  group per VM role, all derived the same way.
+- **Elastic Agent runs standalone, not Fleet-managed, on every VM** (deb
+  package + a hand-rendered `elastic-agent.yml`, both via Ansible), including
+  the OTel demo VM. Reason: Fleet Server needs TLS to enroll agents against,
+  and TLS is deliberately deferred to reach a green cluster fast (see
+  "Security sequencing" and the phased roadmap). Migrating these agents to
+  Fleet-managed mode is itself a planned step *after* Fleet Server comes up
+  on the Kibana VM — not part of this change.
+- **APM Server is its own VM/compose stack, self-managed** (not the
+  Fleet-managed APM integration) — same reasoning as Elastic Agent: Fleet
+  isn't live yet. Revisit once Fleet Server + TLS land.
+- **No Logstash.** Decided against entirely, not deferred — ingest goes
+  straight to Elasticsearch (via Elastic Agent output / ES ingest pipelines).
+  Don't propose adding a Logstash role or VM.
+- **The OpenTelemetry demo VM is Ansible-managed like every other node**, not
+  run ad hoc. Ansible checks out the upstream
+  `open-telemetry/opentelemetry-demo` compose project and overrides its OTLP
+  exporter env vars (`OTEL_EXPORTER_OTLP_ENDPOINT` /
+  `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`) to point at the APM Server VM instead
+  of the demo's bundled Jaeger/Grafana/Prometheus stack. It also runs a
+  standalone Elastic Agent like the rest of the fleet.
 - **Only `hosts.ini` is generated.** `ansible/group_vars/` is hand-authored and
   must never be overwritten by Terraform.
 - **Stack version is pinned in `group_vars/all.yml`** (`stack_version`), NOT in
@@ -45,7 +76,7 @@ reserved for this cluster — additional nodes take the next free IP in range.
 - **Packer configures the Ubuntu OS with everything the Elastic Stack
   containers need to run** — `vm.max_map_count`, memlock/nofile ulimits, and
   the `/opt/elastic` compose base directory are all baked in via cloud-init
-  (`packer/ubuntu-24.04/http/user-data.yml.tpl`). Ansible has zero involvement
+  (`packer/ubuntu-26.04/http/user-data.yml.tpl`). Ansible has zero involvement
   in OS configuration: no variables for any of this exist on the Ansible
   side (not even for verification) — its `common` role only checks Docker
   is present and renders/runs docker-compose. Changing `vm_max_map_count` or
@@ -58,6 +89,13 @@ reserved for this cluster — additional nodes take the next free IP in range.
   `ubuntu-26.04/`). Each is self-contained: its own `*.pkr.hcl` +
   `README.md` with build steps/ADRs. `packer/README.md` itself stays
   generic — don't add template-specific content there.
+- **All six VMs (ES x3, Kibana, APM Server, OTel demo) clone from the
+  `ubuntu-26.04` template**, not `ubuntu-24.04`. `ubuntu-24.04/` still exists
+  and still builds — it's just no longer what `terraform/variables.tf`'s
+  `vm_template` default points at going forward. Same OS-bakes-in-everything
+  approach applies (`vm.max_map_count`, ulimits, `/opt/elastic`) — see
+  `packer/ubuntu-26.04/README.md`'s ADRs for how that template got stripped
+  down relative to 24.04.
 - **Terraform and Ansible are decoupled** — no `local-exec` chaining. Run
   `terraform apply` (from `terraform/`) then `ansible-playbook site.yml`
   (from `ansible/`) as two separate, explicit commands.
@@ -112,7 +150,7 @@ Get a green cluster first, then layer in security and automation.
 
 - **packer@pve!packer-automation** — template build rights (`VM.Allocate`, `VM.Config.*`,
   `VM.Monitor`, `VM.PowerMgmt`, `Datastore.Allocate*`, `Sys.Modify`).
-- **terraform@pve!terraform** — clone/configure rights + SSH to the PVE node for
+- **terraform@pve!terraform-automation** — clone/configure rights + SSH to the PVE node for
   bpg file uploads (`VM.Clone`, `VM.Config.Cloudinit`, `Datastore.Allocate`, …).
 - **mcp@pve!mcp** — **read-only** (`VM.Audit`, `Datastore.Audit`, `Sys.Audit`,
   `Pool.Audit`). This token is the real security boundary for the Proxmox MCP
@@ -166,8 +204,10 @@ match. Use the `update-config` skill for future changes here.
 ## Phased roadmap
 
 1. **Local apply** — Packer→Terraform→Ansible working end-to-end with SOPS +
-   direnv; reach a green cluster. `xpack.security.enabled: false` intentionally,
-   TLS deferred.
+   direnv; reach a green cluster across all six VMs (ES x3, Kibana, APM
+   Server, OTel demo), each running its standalone Elastic Agent.
+   `xpack.security.enabled: false` intentionally, TLS deferred, Fleet Server
+   not yet in the picture.
 2. **GitHub MCP** — official remote server (`https://api.githubcopilot.com/mcp/`,
    `--transport http`, fine-grained PAT scoped to this repo only). Low effort,
    lets the agent read PR checks and workflow logs. Avoid the deprecated
@@ -214,6 +254,7 @@ match. Use the `update-config` skill for future changes here.
 
    **Working alternative:** clone at the pinned commit and point `command`
    directly at the real `index.js` (no symlink involved):
+
    ```bash
    git clone https://github.com/gilby125/mcp-proxmox.git ~/.local/share/mcp-proxmox
    cd ~/.local/share/mcp-proxmox && git checkout <pinned-commit-sha> && npm install
@@ -221,16 +262,19 @@ match. Use the `update-config` skill for future changes here.
 
    Create the read-only token first, same `pveum`-on-the-node pattern as
    Packer/Terraform (see "Running `pveum` from WSL2" in `docs/PACKER.md`):
+
    ```bash
    pveum role add McpReadOnlyRole -privs "VM.Audit,Datastore.Audit,Sys.Audit,Pool.Audit"
    pveum user add mcp@pve --comment "Read-only MCP access"
    pveum aclmod / -user mcp@pve -role McpReadOnlyRole
    pveum user token add mcp@pve mcp --privsep 0
    ```
+
    Then wire it in (verified flag syntax via `claude mcp add --help` on this
    install — `-e` for env vars, bare `--` before the command; the args after
    `--` are spawned directly, no shell, so use the real absolute path — `~`
    won't expand):
+
    ```bash
    claude mcp add proxmox \
      -e PROXMOX_HOST=<pve-ip-or-hostname> \
@@ -241,6 +285,7 @@ match. Use the `update-config` skill for future changes here.
      -e PROXMOX_VERIFY_TLS=false \
      -- node /home/<you>/.local/share/mcp-proxmox/index.js
    ```
+
    Default scope is `local` (not committed) — same reasoning as GitHub MCP:
    never `--scope project` with a literal secret in the args, since that
    scope's `.mcp.json` is committed to git. `PROXMOX_ALLOW_ELEVATED=false`
@@ -261,6 +306,11 @@ match. Use the `update-config` skill for future changes here.
 creates a hard dependency on security being enabled** — plan that transition
 deliberately before Fleet becomes viable. When TLS lands, the bootstrap password
 and `elastic-certificates.p12` go into SOPS (the pattern is already in place).
+Fleet Server then deploys on the Kibana VM, and the standalone Elastic Agents
+already running on all six VMs (installed in phase 1) get re-enrolled as
+Fleet-managed — that migration, and switching APM ingestion from the
+self-managed APM Server to the Fleet-managed APM integration, are both part
+of this same later phase, not phase 1.
 
 ## Custom Trivy/Checkov policies for Proxmox (`policies/`)
 
@@ -367,6 +417,12 @@ cd ansible && ../.venv/bin/ansible-playbook site.yml
 
 ## Open / deferred work
 
-- Logstash VM (separate role + playbook).
-- TLS + auth.
-- Beats / Elastic Agent to ship Proxmox host + VM telemetry.
+- TLS + auth, then Fleet Server on the Kibana VM, then migrating the
+  standalone Elastic Agents (all six VMs) to Fleet-managed mode.
+- A Metricbeat/Elastic Agent module for the *Proxmox host* (the MS-01
+  hypervisor itself) — distinct from the per-guest-VM Elastic Agents (OS +
+  Docker metrics/logs), which are in scope now and configured standalone by
+  Ansible. See roadmap step 4's Proxmox MCP alternative note.
+
+Not on this list: Logstash. That's a deliberate decision, not a deferral —
+see "Decisions that are deliberate."
