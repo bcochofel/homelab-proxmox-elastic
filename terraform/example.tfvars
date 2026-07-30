@@ -18,5 +18,6 @@ ciuser = "ubuntu"
 # Set TF_VAR_cipassword in env / HCP (sensitive)
 sshkeys = "ssh-ed25519 AAAA... bcochofel@host"
 
-# Defaults already size es x3 (8GB) + kibana (4GB). Override es_nodes/kibana_node
+# Defaults already size es x3 (8GB), kibana (4GB), apm_server (4GB), and
+# otel_demo (8GB). Override es_nodes/kibana_node/apm_server_node/otel_demo_node
 # here only if you want different VMIDs, IPs, or sizing.

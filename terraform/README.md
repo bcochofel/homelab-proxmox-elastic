@@ -22,8 +22,10 @@ See [`../docs/TERRAFORM.md`](../docs/TERRAFORM.md).
 
 | Name | Source | Version |
 | ---- | ------ | ------- |
+| <a name="module_apm_server"></a> [apm\_server](#module\_apm\_server) | ./modules/vm | n/a |
 | <a name="module_es"></a> [es](#module\_es) | ./modules/vm | n/a |
 | <a name="module_kibana"></a> [kibana](#module\_kibana) | ./modules/vm | n/a |
+| <a name="module_otel_demo"></a> [otel\_demo](#module\_otel\_demo) | ./modules/vm | n/a |
 
 ## Resources
 
@@ -37,6 +39,7 @@ See [`../docs/TERRAFORM.md`](../docs/TERRAFORM.md).
 | Name | Description | Type | Default | Required |
 | ---- | ----------- | ---- | ------- | :------: |
 | <a name="input_ansible_user"></a> [ansible\_user](#input\_ansible\_user) | Remote user Ansible connects as (matches ansible.cfg) | `string` | `"ubuntu"` | no |
+| <a name="input_apm_server_node"></a> [apm\_server\_node](#input\_apm\_server\_node) | APM Server node definition | <pre>object({<br/>    name    = string<br/>    vmid    = number<br/>    ip_cidr = string<br/>    cores   = number<br/>    memory  = number<br/>    disk    = number<br/>  })</pre> | <pre>{<br/>  "cores": 2,<br/>  "disk": 30,<br/>  "ip_cidr": "192.168.68.34/22",<br/>  "memory": 4096,<br/>  "name": "apm-server",<br/>  "vmid": 9520<br/>}</pre> | no |
 | <a name="input_cipassword"></a> [cipassword](#input\_cipassword) | cloud-init user password | `string` | n/a | yes |
 | <a name="input_ciuser"></a> [ciuser](#input\_ciuser) | cloud-init user (matches Packer template default user) | `string` | `"ubuntu"` | no |
 | <a name="input_cluster_name"></a> [cluster\_name](#input\_cluster\_name) | Elasticsearch cluster.name (used by Ansible too) | `string` | `"homelab-observability"` | no |
@@ -46,6 +49,7 @@ See [`../docs/TERRAFORM.md`](../docs/TERRAFORM.md).
 | <a name="input_kibana_node"></a> [kibana\_node](#input\_kibana\_node) | Kibana node definition | <pre>object({<br/>    name    = string<br/>    vmid    = number<br/>    ip_cidr = string<br/>    cores   = number<br/>    memory  = number<br/>    disk    = number<br/>  })</pre> | <pre>{<br/>  "cores": 2,<br/>  "disk": 30,<br/>  "ip_cidr": "192.168.68.33/22",<br/>  "memory": 4096,<br/>  "name": "kibana",<br/>  "vmid": 9510<br/>}</pre> | no |
 | <a name="input_nameserver"></a> [nameserver](#input\_nameserver) | DNS nameserver for cloud-init | `string` | `"192.168.68.2"` | no |
 | <a name="input_network_bridge"></a> [network\_bridge](#input\_network\_bridge) | Proxmox network bridge | `string` | `"vmbr0"` | no |
+| <a name="input_otel_demo_node"></a> [otel\_demo\_node](#input\_otel\_demo\_node) | OpenTelemetry demo node definition (upstream opentelemetry-demo compose stack) | <pre>object({<br/>    name    = string<br/>    vmid    = number<br/>    ip_cidr = string<br/>    cores   = number<br/>    memory  = number<br/>    disk    = number<br/>  })</pre> | <pre>{<br/>  "cores": 4,<br/>  "disk": 60,<br/>  "ip_cidr": "192.168.68.35/22",<br/>  "memory": 8192,<br/>  "name": "otel-demo",<br/>  "vmid": 9530<br/>}</pre> | no |
 | <a name="input_proxmox_api_token"></a> [proxmox\_api\_token](#input\_proxmox\_api\_token) | API token, form user@realm!tokenid=secret | `string` | n/a | yes |
 | <a name="input_proxmox_endpoint"></a> [proxmox\_endpoint](#input\_proxmox\_endpoint) | Proxmox API endpoint, e.g. https://192.168.68.10:8006/ | `string` | n/a | yes |
 | <a name="input_proxmox_insecure"></a> [proxmox\_insecure](#input\_proxmox\_insecure) | Skip TLS verification (homelab self-signed cert) | `bool` | `true` | no |
@@ -59,9 +63,11 @@ See [`../docs/TERRAFORM.md`](../docs/TERRAFORM.md).
 
 | Name | Description |
 | ---- | ----------- |
+| <a name="output_apm_server"></a> [apm\_server](#output\_apm\_server) | APM Server node details |
 | <a name="output_es_endpoint"></a> [es\_endpoint](#output\_es\_endpoint) | An Elasticsearch endpoint (first node) |
 | <a name="output_es_nodes"></a> [es\_nodes](#output\_es\_nodes) | Elasticsearch node names -> {vmid, ip} |
 | <a name="output_inventory_path"></a> [inventory\_path](#output\_inventory\_path) | Path to the generated Ansible inventory |
 | <a name="output_kibana"></a> [kibana](#output\_kibana) | Kibana node details |
 | <a name="output_kibana_url"></a> [kibana\_url](#output\_kibana\_url) | Kibana URL once provisioned |
+| <a name="output_otel_demo"></a> [otel\_demo](#output\_otel\_demo) | OpenTelemetry demo node details |
 <!-- END_TF_DOCS -->

@@ -83,6 +83,36 @@ variable "kibana_node" {
   }
 }
 
+variable "apm_server_node" {
+  type = object({
+    name    = string
+    vmid    = number
+    ip_cidr = string
+    cores   = number
+    memory  = number
+    disk    = number
+  })
+  description = "APM Server node definition"
+  default = {
+    name = "apm-server", vmid = 9520, ip_cidr = "192.168.68.34/22", cores = 2, memory = 4096, disk = 30
+  }
+}
+
+variable "otel_demo_node" {
+  type = object({
+    name    = string
+    vmid    = number
+    ip_cidr = string
+    cores   = number
+    memory  = number
+    disk    = number
+  })
+  description = "OpenTelemetry demo node definition (upstream opentelemetry-demo compose stack)"
+  default = {
+    name = "otel-demo", vmid = 9530, ip_cidr = "192.168.68.35/22", cores = 4, memory = 8192, disk = 60
+  }
+}
+
 # --------------------------------------------------------
 # Networking
 # --------------------------------------------------------

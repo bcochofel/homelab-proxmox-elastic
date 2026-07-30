@@ -70,6 +70,58 @@ module "kibana" {
   tags = ["terraform", "elastic", "kibana"]
 }
 
+# APM Server node
+module "apm_server" {
+  source = "./modules/vm"
+
+  name          = var.apm_server_node.name
+  vmid          = var.apm_server_node.vmid
+  target_node   = var.target_node
+  template_vmid = local.template_vmid
+
+  cores  = var.apm_server_node.cores
+  memory = var.apm_server_node.memory
+  disk   = var.apm_server_node.disk
+
+  ip_cidr        = var.apm_server_node.ip_cidr
+  gateway        = var.gateway
+  network_bridge = var.network_bridge
+  nameserver     = var.nameserver
+  searchdomain   = var.searchdomain
+
+  ciuser     = var.ciuser
+  cipassword = var.cipassword
+  sshkeys    = var.sshkeys
+
+  tags = ["terraform", "elastic", "apm_server"]
+}
+
+# OpenTelemetry demo node
+module "otel_demo" {
+  source = "./modules/vm"
+
+  name          = var.otel_demo_node.name
+  vmid          = var.otel_demo_node.vmid
+  target_node   = var.target_node
+  template_vmid = local.template_vmid
+
+  cores  = var.otel_demo_node.cores
+  memory = var.otel_demo_node.memory
+  disk   = var.otel_demo_node.disk
+
+  ip_cidr        = var.otel_demo_node.ip_cidr
+  gateway        = var.gateway
+  network_bridge = var.network_bridge
+  nameserver     = var.nameserver
+  searchdomain   = var.searchdomain
+
+  ciuser     = var.ciuser
+  cipassword = var.cipassword
+  sshkeys    = var.sshkeys
+
+  tags = ["terraform", "elastic", "otel_demo"]
+}
+
 # ----------------------------------------------------------------------------
 # Generate Ansible inventory.
 # Only hosts.ini is generated — group_vars/ stays hand-authored so Terraform
@@ -84,10 +136,14 @@ resource "local_file" "ansible_inventory" {
         ip   = mod.ip
       }
     ]
-    kibana_name  = module.kibana.name
-    kibana_ip    = module.kibana.ip
-    cluster_name = var.cluster_name
-    ansible_user = var.ansible_user
+    kibana_name     = module.kibana.name
+    kibana_ip       = module.kibana.ip
+    apm_server_name = module.apm_server.name
+    apm_server_ip   = module.apm_server.ip
+    otel_demo_name  = module.otel_demo.name
+    otel_demo_ip    = module.otel_demo.ip
+    cluster_name    = var.cluster_name
+    ansible_user    = var.ansible_user
   })
   filename = "${path.root}/../ansible/inventory/hosts.ini"
 }
