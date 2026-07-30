@@ -45,6 +45,7 @@ pre-commit run --all-files
 ```
 
 What runs:
+
 - **General file hygiene** — end-of-file-fixer, trailing-whitespace,
   detect-private-key, check-merge-conflict, no-commit-to-branch (blocks
   direct commits to `main`/`master`).
@@ -85,7 +86,7 @@ Commit messages are linted by commitlint
 ([`commitlint.config.js`](commitlint.config.js)) against
 [Conventional Commits](https://www.conventionalcommits.org/):
 
-```
+```text
 <type>(optional scope): <subject>
 ```
 
@@ -114,6 +115,7 @@ manual version bumps.
 - `docs:`, `chore:`, `style:`, etc. -> no release by themselves
 
 On release, semantic-release ([`.releaserc.js`](.releaserc.js)):
+
 1. Analyzes commits since the last release (`commit-analyzer`).
 2. Generates release notes (`release-notes-generator`).
 3. Updates [`CHANGELOG.md`](CHANGELOG.md) (`changelog`).
