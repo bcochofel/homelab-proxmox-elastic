@@ -8,11 +8,13 @@ Roughly in dependency order — later phases build on earlier ones.
 
 ## Phase 1 — Green cluster
 
-- [x] Packer -> Terraform -> Ansible pipeline, `xpack.security.enabled: false`
-- [x] Terraform layer: 6-VM topology (ES x3, Kibana, APM Server, OTel demo),
-      `vm` module, per-role inventory groups
-- [ ] Ansible layer: `apm_server`, `otel_demo`, `elastic_agent` roles +
-      matching playbooks (separate PR from Terraform)
+- [x] Packer: `ubuntu-26.04` template builds cleanly (Docker + Compose,
+      OS config for the Elastic Stack baked in via cloud-init)
+- [ ] Terraform: 6-VM topology (ES x3, Kibana, APM Server, OTel demo), `vm`
+      module, per-role inventory groups — code is up as a PR (#3), not yet
+      merged or applied, so no VMs exist yet
+- [ ] Ansible: `apm_server`, `otel_demo`, `elastic_agent` roles + matching
+      playbooks (separate PR from Terraform, not started)
 - [ ] All six VMs green end to end: ES cluster healthy, Kibana up, APM
       Server up, OTel demo shipping traces to APM Server, every VM running
       a standalone Elastic Agent for OS + Docker metrics/logs
@@ -37,15 +39,16 @@ Roughly in dependency order — later phases build on earlier ones.
       Phase 3)
 - [ ] Metricbeat/Elastic Agent module for the *Proxmox host* itself (the
       MS-01 hypervisor) — distinct from the per-guest-VM agents in Phase 1
-- [ ] Trivy vulnerability/CVE scanning of the built Packer template — the
-      actual OS image/packages baked into the VM, not the Terraform IaC
-      scan that already runs in pre-commit today. Needs:
-  - a scan step (Packer post-processor against the built template, or a
-        scheduled scan against a running/exported instance)
-  - results shipped into Elasticsearch so they're queryable in Kibana,
-        not left as a build-log artifact
-  - run on a recurring schedule (cron), not just once at build time, so
-        CVEs disclosed after a template is built still surface
+- [ ] Trivy vulnerability/CVE scanning of the Packer template — the actual
+      OS image/packages baked into the VM, not the Terraform IaC scan that
+      already runs in pre-commit today. Staged in two steps:
+  - [ ] Step 1 (no dependency on Terraform/Ansible): run Trivy against the
+        built template and just show the results — doable right after
+        Packer, today
+  - [ ] Step 2 (needs Terraform + Ansible from Phase 1): once Terraform
+        creates the VMs, Ansible configures Trivy to run on a recurring
+        schedule (cron) and ship results into Elasticsearch, so they're
+        queryable in Kibana instead of a one-off scan output
 
 ## Phase 5 — Elastic Security / SIEM
 
