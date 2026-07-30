@@ -79,7 +79,9 @@ variable "kibana_node" {
   })
   description = "Kibana node definition"
   default = {
-    name = "kibana", vmid = 9510, ip_cidr = "192.168.68.33/22", cores = 2, memory = 4096, disk = 30
+    # disk >= 60: the ubuntu-26.04 template's disk_size is 60G and bpg can't
+    # shrink a cloned disk (see modules/vm/main.tf's disk block comment).
+    name = "kibana", vmid = 9510, ip_cidr = "192.168.68.33/22", cores = 2, memory = 4096, disk = 60
   }
 }
 
@@ -94,7 +96,8 @@ variable "apm_server_node" {
   })
   description = "APM Server node definition"
   default = {
-    name = "apm-server", vmid = 9520, ip_cidr = "192.168.68.34/22", cores = 2, memory = 4096, disk = 30
+    # disk >= 60: same constraint as kibana_node above.
+    name = "apm-server", vmid = 9520, ip_cidr = "192.168.68.34/22", cores = 2, memory = 4096, disk = 60
   }
 }
 
