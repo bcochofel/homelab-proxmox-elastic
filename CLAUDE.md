@@ -151,12 +151,15 @@ Get a green cluster first, then layer in security and automation.
 - **packer@pve!packer-automation** — template build rights (`VM.Allocate`, `VM.Config.*`,
   `VM.Monitor`, `VM.PowerMgmt`, `Datastore.Allocate*`, `Sys.Modify`).
 - **terraform@pve!terraform-automation** — clone/configure rights + SSH to the PVE node for
-  bpg file uploads (`VM.Clone`, `VM.Allocate`, `VM.Config.Cloudinit`,
-  `Datastore.Allocate`, …). `VM.Allocate` is required even though Terraform
-  only clones (never builds) a VM — Proxmox's clone endpoint checks it
-  against the *destination* VMID, not just `VM.Clone` on the source. See
-  `docs/TERRAFORM.md`'s privilege table for the full list and the incident
-  that surfaced this (omitting it fails every clone with `HTTP 403`).
+  bpg file uploads (`VM.Clone`, `VM.Allocate`, `VM.Config.CDROM`,
+  `VM.Config.Cloudinit`, `Datastore.Allocate`, …). `VM.Allocate` and
+  `VM.Config.CDROM` are both required even though Terraform only clones
+  (never builds) a VM: Proxmox's clone endpoint checks `VM.Allocate`
+  against the *destination* VMID rather than just `VM.Clone` on the
+  source, and this template's `ide`-bus cloud-init drive (a leftover from
+  the Packer build) needs `VM.Config.CDROM` to reconfigure on every clone.
+  See `docs/TERRAFORM.md`'s privilege table and incident notes for the
+  full list and the two 403s that surfaced these.
 - **mcp@pve!mcp** — **read-only** (`VM.Audit`, `Datastore.Audit`, `Sys.Audit`,
   `Pool.Audit`). This token is the real security boundary for the Proxmox MCP
   server; the server's own `PROXMOX_ALLOW_ELEVATED=false` flag is belt-and-

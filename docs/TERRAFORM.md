@@ -88,10 +88,11 @@ node's own web Shell); the same options apply here.
 # 1. Role scoped to what Terraform actually does: clone the Packer
 #    template, size/network/cloud-init the clone, and read template/VM
 #    state. Not building or templating — that's Packer's job.
-pveum role add TerraformRole -privs "VM.Allocate,VM.Audit,VM.Clone,VM.Config.CPU,\
-VM.Config.Cloudinit,VM.Config.Disk,VM.Config.HWType,VM.Config.Memory,\
-VM.Config.Network,VM.Config.Options,VM.Monitor,VM.PowerMgmt,\
-Datastore.Allocate,Datastore.AllocateSpace,Datastore.Audit,SDN.Use"
+pveum role add TerraformRole -privs "VM.Allocate,VM.Audit,VM.Clone,\
+VM.Config.CDROM,VM.Config.CPU,VM.Config.Cloudinit,VM.Config.Disk,\
+VM.Config.HWType,VM.Config.Memory,VM.Config.Network,VM.Config.Options,\
+VM.Monitor,VM.PowerMgmt,Datastore.Allocate,Datastore.AllocateSpace,\
+Datastore.Audit,SDN.Use"
 
 # 2. User for the role (no password; auth is via API token only)
 pveum user add terraform@pve --comment "Terraform VM clone/configure"
@@ -123,6 +124,7 @@ value.)
 | `VM.Allocate` | Required on the *destination* VMID for every clone, not just fresh-built VMs — Proxmox's clone endpoint checks `VM.Clone` on the source template but `VM.Allocate` on the new VMID, since claiming a not-yet-existing VM ID is an "allocate" regardless of whether the VM ends up empty or cloned. Confirmed empirically: omitting it makes every `proxmox_virtual_environment_vm` clone fail identically with `HTTP 403 Permission check failed`, even though `VM.Clone` is granted — see the incident note below. |
 | `VM.Audit` | Look up the template's VMID by name (`data.proxmox_virtual_environment_vms.template`), read VM state while polling for the cloud-init-assigned IP |
 | `VM.Clone` | Read/export permission on the *source* template for each of the six clones |
+| `VM.Config.CDROM` | The `ubuntu-26.04` template carries a leftover `ide`-bus slot from the Packer build; bpg's `initialization` block reconfigures the cloud-init drive on that same bus on every clone, which Proxmox checks under the CD-ROM permission bucket regardless of actual media type. Confirmed empirically — see the incident note below. |
 | `VM.Config.CPU`, `VM.Config.Memory`, `VM.Config.Disk`, `VM.Config.HWType`, `VM.Config.Network` | Set cores, memory, resize the cloned disk, attach the network device |
 | `VM.Config.Cloudinit` | Write the static IP/gateway, DNS, and cloud-init user-account config each clone boots with |
 | `VM.Config.Options` | Set description/tags on the clone |
@@ -132,24 +134,39 @@ value.)
 | `SDN.Use` | Attach each VM's NIC to `vmbr0` — same reason Packer needs it: required once the bridge is managed as an SDN zone |
 
 Not granted: anything from Packer's role that's about *building* a template
-from an ISO (`VM.Config.CDROM`, `VM.Console`, `Datastore.AllocateTemplate`,
-`Sys.Modify`) — Terraform only ever clones an already-built template, it
-never creates one. `VM.Allocate` is the one privilege that sounds
-template-building-specific but isn't: it's checked against the clone's
-*destination* ID, so it's required here too (see above).
+from an ISO (`VM.Console`, `Datastore.AllocateTemplate`, `Sys.Modify`) —
+Terraform only ever clones an already-built template, it never creates one.
+Two privileges sound template-building-specific but aren't, both confirmed
+by hitting the actual 403s (see the incident notes below):
 
-**Incident, since fixed:** the role above originally shipped without
-`VM.Allocate` (the reasoning was "Terraform only clones, it doesn't build
-templates, so it doesn't need allocate privileges" — half right, but the
-destination-ID check still applies to clones). `terraform apply` failed on
-all six `module.*.proxmox_virtual_environment_vm.this` resources
-simultaneously with `Error: VM clone` / `HTTP 403 Permission check failed`,
-even though `pveum acl list` showed `TerraformRole` correctly attached to
-`terraform@pve` at `/` (propagate=1) and the token had `privsep=0` (so it
-inherits the user's ACL). All six failing at once, rather than one-off,
-was the tell that this was a role/privilege gap rather than a per-VM or
-token-wiring issue. Fixed via `pveum role modify TerraformRole -privs
-"...,VM.Allocate"` on the Proxmox node; no ACL or token changes needed.
+- `VM.Allocate` is checked against the clone's *destination* ID, not just
+  the build path.
+- `VM.Config.CDROM` is checked whenever the clone's `ide`-bus cloud-init
+  drive gets reconfigured, because this template's `ide` slot was left
+  over from the Packer build rather than being clean.
+
+**Incident 1, since fixed — missing `VM.Allocate`:** the role above
+originally shipped without `VM.Allocate` (the reasoning was "Terraform only
+clones, it doesn't build templates, so it doesn't need allocate privileges"
+— half right, but the destination-ID check still applies to clones).
+`terraform apply` failed on all six `module.*.proxmox_virtual_environment_vm.this`
+resources simultaneously with `Error: VM clone` / `HTTP 403 Permission check
+failed`, even though `pveum acl list` showed `TerraformRole` correctly
+attached to `terraform@pve` at `/` (propagate=1) and the token had
+`privsep=0` (so it inherits the user's ACL). All six failing at once, rather
+than one-off, was the tell that this was a role/privilege gap rather than a
+per-VM or token-wiring issue. Fixed via `pveum role modify TerraformRole
+-privs "...,VM.Allocate"` on the Proxmox node; no ACL or token changes
+needed.
+
+**Incident 2, since fixed — missing `VM.Config.CDROM`:** with `VM.Allocate`
+in place, cloning itself succeeded, but `terraform apply` then failed on all
+six resources again with `Error: ... HTTP 403 Permission check failed
+(/vms/<vmid>, VM.Config.CDROM)` while bpg's `initialization` block
+reconfigured each clone's cloud-init drive. Same signature as incident 1 —
+every VM failing identically — so the same "check the role's privilege
+list first" approach applied. Fixed the same way: `pveum role modify
+TerraformRole -privs "...,VM.Config.CDROM"`.
 
 `providers.tf`'s `ssh { agent = true, username = var.proxmox_ssh_username }`
 block is configured but not currently exercised — this repo's cloud-init
