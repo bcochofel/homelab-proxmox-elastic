@@ -45,12 +45,6 @@ variable "cluster_name" {
   default     = "homelab-observability"
 }
 
-variable "es_node_count" {
-  type        = number
-  description = "Number of Elasticsearch nodes"
-  default     = 3
-}
-
 variable "es_nodes" {
   type = list(object({
     name    = string

@@ -121,12 +121,31 @@ build {
   # -----------------------
   provisioner "shell" {
     environment_vars = [
-      "INSTALL_DOCKER=${var.install_docker}"
+      "INSTALL_DOCKER=${var.install_docker}",
+      "INSTALL_TRIVY=${var.install_trivy}",
+      "TRIVY_VERSION=${var.trivy_version}",
+      "TRIVY_REPORT_PATH=${var.trivy_report_path}",
+      "INSTALL_ELASTIC_AGENT=${var.install_elastic_agent}",
+      "ELASTIC_AGENT_VERSION=${var.elastic_agent_version}"
     ]
-    execute_command = "sudo -E bash '{{ .Path }}'"
+    # `sudo -E` is rejected outright by this image's sudo policy ("preserving
+    # the entire environment is not supported, '-E' is ignored"), so none of
+    # environment_vars above ever reached any script that way — scripts with
+    # a safe `:-true`-style fallback (e.g. INSTALL_DOCKER) silently masked
+    # this, but TRIVY_VERSION has no safe default and failed loudly instead.
+    # Passing {{ .Vars }} as explicit VAR=value arguments directly to sudo
+    # (sudo's native per-command env-setting syntax) works without needing
+    # -E at all.
+    execute_command = "sudo {{ .Vars }} bash '{{ .Path }}'"
     # Use absolute paths under /tmp/scripts so it's clear where they run from
+    # NN- prefixes are the provisioner order (see ADR-2): initrd network fix
+    # first (no dependency on anything else), then Docker, then Trivy, then
+    # Elastic Agent (package only — left disabled, see ADR-8).
     scripts = [
-      "${path.root}/scripts/20-install-docker.sh"
+      "${path.root}/scripts/15-fix-initrd-network.sh",
+      "${path.root}/scripts/20-install-docker.sh",
+      "${path.root}/scripts/30-install-trivy.sh",
+      "${path.root}/scripts/35-install-elastic-agent.sh"
     ]
   }
 

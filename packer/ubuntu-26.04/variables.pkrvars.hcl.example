@@ -48,6 +48,19 @@ additional_users = [
 # Docker
 install_docker = true
 
+# Trivy (OS-level vulnerability scanning) — defaults already schedule a
+# daily scan to /var/log/trivy/report.json; override only if you want a
+# different version or report path.
+install_trivy = true
+# trivy_version     = "0.72.0"
+# trivy_report_path = "/var/log/trivy/report.json"
+
+# Elastic Agent (package pre-installed, left disabled — Ansible configures
+# and enables it later). elastic_agent_version MUST match
+# ansible/group_vars/all.yml's stack_version.
+install_elastic_agent = true
+# elastic_agent_version = "9.4.2"
+
 # Elastic Stack host requirements — defaults already match
 # ansible/group_vars/all.yml. Only override if you change both sides.
 # vm_max_map_count = 262144

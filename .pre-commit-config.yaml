@@ -32,60 +32,57 @@ repos:
         pass_filenames: false
 
   # Terraform formatting and validation
-  # Commented out on feature/packer: terraform/, .tflint.hcl, checkov.yaml,
-  # and policies/ aren't in this branch yet, so these hooks' config args
-  # would point at nothing. Re-enable when terraform/ comes back.
-  # - repo: https://github.com/antonbabenko/pre-commit-terraform
-  #   rev: v1.104.0
-  #   hooks:
-  #     # Terraform formatting
-  #     - id: terraform_fmt
-  #       args:
-  #         - --args=-no-color
-  #         - --args=-diff
-  #         - --args=-recursive
-  #       files: ^terraform/
-  #
-  #     # Terraform validation
-  #     - id: terraform_validate
-  #       args:
-  #         - --args=-json
-  #         - --args=-no-color
-  #       files: ^terraform/
-  #
-  #     # Terraform documentation generation
-  #     - id: terraform_docs
-  #       args:
-  #         - --hook-config=--path-to-file=README.md
-  #         - --hook-config=--add-to-existing-file=true
-  #         - --hook-config=--create-file-if-not-exist=true
-  #       files: ^terraform/
-  #
-  #     # TFLint - Terraform linter
-  #     - id: terraform_tflint
-  #       args:
-  #         - --args=--config=__GIT_WORKING_DIR__/.tflint.hcl
-  #         - --args=--call-module-type=all
-  #       files: ^terraform/
-  #
-  #     # Trivy - Security scanner
-  #     - id: terraform_trivy
-  #       args:
-  #         - --args=--config=__GIT_WORKING_DIR__/.trivy.yaml
-  #         - --args=--cache-dir=/tmp/.cache/trivy
-  #         - --args=--ignorefile=__GIT_WORKING_DIR__/.trivyignore
-  #       files: ^terraform/
-  #
-  #     # Checkov - Policy as code scanner
-  #     # --external-checks-dir is passed here as an absolute path (not just
-  #     # relied on from checkov.yaml's own relative entry) because this hook
-  #     # cd's into each changed directory before running `checkov -d .` — a
-  #     # relative external-checks-dir would silently resolve to nothing there.
-  #     - id: terraform_checkov
-  #       args:
-  #         - --args=--config-file=__GIT_WORKING_DIR__/checkov.yaml
-  #         - --args=--external-checks-dir=__GIT_WORKING_DIR__/policies/checkov
-  #       files: ^terraform/
+  - repo: https://github.com/antonbabenko/pre-commit-terraform
+    rev: v1.104.0
+    hooks:
+      # Terraform formatting
+      - id: terraform_fmt
+        args:
+          - --args=-no-color
+          - --args=-diff
+          - --args=-recursive
+        files: ^terraform/
+
+      # Terraform validation
+      - id: terraform_validate
+        args:
+          - --args=-json
+          - --args=-no-color
+        files: ^terraform/
+
+      # Terraform documentation generation
+      - id: terraform_docs
+        args:
+          - --hook-config=--path-to-file=README.md
+          - --hook-config=--add-to-existing-file=true
+          - --hook-config=--create-file-if-not-exist=true
+        files: ^terraform/
+
+      # TFLint - Terraform linter
+      - id: terraform_tflint
+        args:
+          - --args=--config=__GIT_WORKING_DIR__/.tflint.hcl
+          - --args=--call-module-type=all
+        files: ^terraform/
+
+      # Trivy - Security scanner
+      - id: terraform_trivy
+        args:
+          - --args=--config=__GIT_WORKING_DIR__/.trivy.yaml
+          - --args=--cache-dir=/tmp/.cache/trivy
+          - --args=--ignorefile=__GIT_WORKING_DIR__/.trivyignore
+        files: ^terraform/
+
+      # Checkov - Policy as code scanner
+      # --external-checks-dir is passed here as an absolute path (not just
+      # relied on from checkov.yaml's own relative entry) because this hook
+      # cd's into each changed directory before running `checkov -d .` — a
+      # relative external-checks-dir would silently resolve to nothing there.
+      - id: terraform_checkov
+        args:
+          - --args=--config-file=__GIT_WORKING_DIR__/checkov.yaml
+          - --args=--external-checks-dir=__GIT_WORKING_DIR__/policies/checkov
+        files: ^terraform/
 
   # Commit message linting
   - repo: https://github.com/alessandrojcm/commitlint-pre-commit-hook

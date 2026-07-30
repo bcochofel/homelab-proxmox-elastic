@@ -199,6 +199,7 @@ variable "packages" {
     "apt-transport-https",
     "software-properties-common",
     # troubleshooting tools
+    "whois",
     "net-tools",
     "inetutils-ping",
     "traceroute",
@@ -295,4 +296,54 @@ variable "install_docker" {
   type        = bool
   description = "Wheter to install Docker"
   default     = true
+}
+
+# --------------------------------------------------------
+# Trivy (OS-level vulnerability scanning) — see ADR-7 in
+# packer/ubuntu-26.04/README.md for why this differs from the
+# AIDE/rkhunter/chkrootkit/lynis tooling ADR-3 dropped.
+# --------------------------------------------------------
+variable "install_trivy" {
+  type        = bool
+  description = "Whether to install Trivy and schedule the daily OS vulnerability scan"
+  default     = true
+}
+
+variable "trivy_version" {
+  type        = string
+  description = "Trivy release to install (pinned — matches the Makefile's TRIVY_VERSION)"
+  default     = "0.72.0"
+}
+
+variable "trivy_report_path" {
+  type        = string
+  description = "Path where the daily cron overwrites the latest Trivy JSON report"
+  default     = "/var/log/trivy/report.json"
+}
+
+# --------------------------------------------------------
+# Elastic Agent — package pre-installed here (like Docker/Trivy) but left
+# disabled: there's no ES cluster at template-build time, so Ansible is
+# still the one that renders elastic-agent.yml and enables/starts the
+# service, per CLAUDE.md's "Elastic Agent runs standalone" decision. See
+# ADR-8 in packer/ubuntu-26.04/README.md.
+#
+# elastic_agent_version MUST match ansible/group_vars/all.yml's
+# stack_version — same manual-sync trade-off ADR-1 already accepts for
+# elastic_base_dir. Unlike that one, a drift here isn't harmless: the
+# (not-yet-built) elastic_agent Ansible role must check the installed
+# version against stack_version and reinstall via this same .deb URL if
+# they've drifted, since Packer can't retroactively fix already-cloned
+# VMs — see TODO.md's Phase 1 Ansible item.
+# --------------------------------------------------------
+variable "install_elastic_agent" {
+  type        = bool
+  description = "Whether to pre-install the Elastic Agent package (left disabled until Ansible configures it)"
+  default     = true
+}
+
+variable "elastic_agent_version" {
+  type        = string
+  description = "Elastic Agent version to install — MUST match ansible/group_vars/all.yml's stack_version"
+  default     = "9.4.2"
 }
