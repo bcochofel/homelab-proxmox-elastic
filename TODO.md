@@ -16,11 +16,10 @@ Roughly in dependency order — later phases build on earlier ones.
       six VMs exist. Needed two `TerraformRole` privilege fixes
       (`VM.Allocate`, `VM.Config.CDROM`) not caught until the real apply —
       see `docs/TERRAFORM.md`'s incident notes
-- [ ] Rebuild the `ubuntu-26.04` template to pick up the initrd-network fix
-      (see `packer/ubuntu-26.04/README.md`'s ADR-6), then re-apply — the
-      six VMs currently up got DHCP addresses instead of their static IPs
-      because of that bug, so the generated `hosts.ini` doesn't match
-      reality yet and Ansible can't run against them as-is
+- [x] Rebuild the `ubuntu-26.04` template to pick up the initrd-network fix
+      (see `packer/ubuntu-26.04/README.md`'s ADR-6) and re-apply — confirmed
+      fixed: all six VMs now come up on their configured static IPs instead
+      of DHCP
 - [ ] Ansible: `apm_server`, `otel_demo`, `elastic_agent` roles + matching
       playbooks (separate PR from Terraform, not started). The
       `elastic_agent` role only needs to render `elastic-agent.yml` and
@@ -64,9 +63,11 @@ Roughly in dependency order — later phases build on earlier ones.
       already runs in pre-commit today. Done at the Packer/OS level
       (`packer/ubuntu-26.04/scripts/30-install-trivy.sh`, see its ADR-7):
       every VM installs a pinned Trivy, pre-caches its vulnerability DB at
-      build time, and runs a daily cron (`trivy rootfs`) that overwrites a
-      JSON report at a path set by the `trivy_report_path` Packer variable
-      (default `/var/log/trivy/report.json`)
+      build time, runs one scan immediately (a visible summary table in the
+      Packer build log, plus a JSON baseline report), and then a daily cron
+      (`trivy rootfs`) that overwrites that same JSON report at a path set
+      by the `trivy_report_path` Packer variable (default
+      `/var/log/trivy/report.json`)
   - [ ] Still open: ship that per-VM JSON into Elasticsearch (e.g. an
         Elastic Agent custom log/file input reading `trivy_report_path`)
         so it's queryable via CVE dashboards in Kibana instead of sitting

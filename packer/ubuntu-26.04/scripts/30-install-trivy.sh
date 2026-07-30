@@ -62,8 +62,18 @@ mkdir -p "$REPORT_DIR"
 
 log_info "Pre-downloading Trivy's vulnerability DB into the template (so each clone's first daily scan doesn't need one)..."
 mkdir -p /var/cache/trivy
-/usr/local/bin/trivy rootfs --download-db-only --cache-dir /var/cache/trivy / \
+# --quiet: the DB download's progress bar redraws the same line hundreds of
+# times via carriage returns, which Packer's log capture can't collapse —
+# it prints as one giant line of percentage spam instead. --quiet suppresses
+# that (and startup log lines) without hiding actual scan results below.
+/usr/local/bin/trivy rootfs --download-db-only --cache-dir /var/cache/trivy --quiet / \
   || log_warn "DB pre-download failed (no network during build?) — each clone's cron will fetch it on first run instead."
+
+log_info "Running an initial vulnerability scan — build-time baseline report, plus the summary below."
+/usr/local/bin/trivy rootfs --cache-dir /var/cache/trivy --quiet --format json --output "${TRIVY_REPORT_PATH}" / \
+  || log_warn "Initial JSON report generation failed — the daily cron will still attempt one on schedule."
+/usr/local/bin/trivy rootfs --cache-dir /var/cache/trivy --quiet --format table / \
+  || log_warn "Initial summary table generation failed."
 
 log_info "Installing daily cron job -> ${TRIVY_REPORT_PATH}"
 cat >/etc/cron.d/trivy-scan <<EOF

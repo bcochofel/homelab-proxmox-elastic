@@ -61,7 +61,7 @@ ISO boot --autoinstall--> cloud-init (users, disk layout, packages,
 | `http/meta-data.yml` | cloud-init meta-data (mostly empty; required by the datasource) |
 | `scripts/15-fix-initrd-network.sh` | Omits dracut's network modules so nothing DHCPs the NIC before cloud-init's netplan config runs (see ADR-6) |
 | `scripts/20-install-docker.sh` | Docker CE + Compose plugin, qemu-guest-agent |
-| `scripts/30-install-trivy.sh` | Installs Trivy (pinned), pre-caches its vulnerability DB, schedules the daily scan (see ADR-7) |
+| `scripts/30-install-trivy.sh` | Installs Trivy (pinned), pre-caches its vulnerability DB, runs an initial scan (visible summary + baseline report), schedules the daily scan (see ADR-7) |
 | `scripts/35-install-elastic-agent.sh` | Installs Elastic Agent (pinned) and disables the service — Ansible configures and enables it later (see ADR-8) |
 | `scripts/99-cleanup-seal.sh` | Strips machine-id/SSH host keys/logs/cloud-init state before conversion to template |
 | `variables.pkrvars.hcl.example` | Copy to `variables.auto.pkrvars.hcl` (gitignored, auto-loaded by Packer) and fill in |
@@ -254,10 +254,19 @@ and no per-clone coupling.
 same `TRIVY_VERSION` the Makefile uses for the IaC-scanning binary, `0.72.0`
 by default — see `variables.pkr.hcl`), pre-downloads its vulnerability DB
 into the template (`--download-db-only`, so a clone's first scan doesn't
-need to fetch it), and installs `/etc/cron.d/trivy-scan`: daily at 03:00,
-`trivy rootfs / --format json --output <trivy_report_path>`, overwriting
-the same path each run (default `/var/log/trivy/report.json`, both set via
-Packer variables — `install_trivy`, `trivy_version`, `trivy_report_path`).
+need to fetch it), **runs one scan immediately** (JSON written to
+`trivy_report_path` as a build-time baseline, plus a human-readable table
+printed straight to the Packer build log — this is `TODO.md` Phase 4's
+"Step 1, just show results" half), and installs `/etc/cron.d/trivy-scan`:
+daily at 03:00, `trivy rootfs / --format json --output <trivy_report_path>`,
+overwriting the same path each run (both variables set via Packer —
+`install_trivy`, `trivy_version`, `trivy_report_path`). Every Trivy
+invocation uses `--quiet` — without it, the DB download's progress bar
+redraws the same line hundreds of times via carriage returns, which
+Packer's log capture can't collapse and instead prints as one giant
+spam line; `--quiet` only suppresses that and startup log lines, not the
+actual results table (confirmed via `trivy --help`: "suppress progress bar
+and log output").
 
 **Consequences.** Every VM in the topology self-scans daily and keeps only
 the latest JSON report locally — this is `TODO.md` Phase 4's "Step 1 plus
