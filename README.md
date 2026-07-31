@@ -38,6 +38,39 @@ metrics/logs.
 - APM Server: `http://192.168.68.34:8200`
 - OTel demo frontend: `http://192.168.68.35:8080`
 
+## Exploring the data in Kibana
+
+No login — `xpack.security` is off (see below). Once the cluster is green,
+the OTel demo's `load-generator` keeps producing live traffic continuously,
+so there's always fresh data to look at.
+
+**APM** (most turnkey, since it's a dedicated app):
+
+- **Observability → APM → Services** lists every otel-demo microservice
+  (`checkout`, `cart`, `frontend`, `payment`, `recommendation`, etc.) plus
+  `otelcol_contrib` itself. Click one for throughput, latency, error rate,
+  and trace waterfalls.
+- **Service Map** gives a topology graph of who calls whom.
+
+**Logs** — `Discover` with the `logs-*` data view, or **Observability →
+Logs**. Key datasets: `system.syslog` (every VM's OS logs),
+`docker.container_logs` (every container's stdout/stderr), `apm.app.*`
+(per-service application logs from the otel-demo services), `apm.error`
+(captured exceptions). Filter on `data_stream.dataset` or
+`container.name`/`host.name` to narrow down.
+
+**Metrics** — **Observability → Infrastructure** for a host/container
+inventory view (CPU, memory), or `Discover` with `metrics-*` filtered to
+`data_stream.dataset` values like `system.cpu`, `system.memory`,
+`docker.cpu`, `docker.memory`. APM's own latency/throughput charts already
+pull from `metrics-apm.*` automatically — the APM app visualizes those for
+you, no need to browse them directly.
+
+If `Discover` shows no data the first time, check **Stack Management →
+Data Views** — the Observability apps (APM/Infrastructure/Logs) query
+`logs-*`/`metrics-*`/`traces-*` directly and usually don't need one, but
+`Discover` sometimes does.
+
 ## Design decisions
 
 - **Provider:** `bpg/proxmox` (deliberate choice over Telmate).
