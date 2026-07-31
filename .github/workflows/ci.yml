@@ -39,5 +39,22 @@ jobs:
       - name: Ansible virtualenv + collections
         run: make ansible-deps
 
+      - name: Pre-warm Trivy's misconfiguration checks bundle
+        # Required, not optional: pre-commit-terraform's terraform_trivy
+        # hook runs once per Terraform directory (root + each module) in
+        # parallel. On a cold cache (every CI run — this is a fresh runner,
+        # unlike a dev machine's long-lived ~/.cache/trivy) those parallel
+        # invocations race on downloading/extracting the same checks
+        # bundle into the same --cache-dir, corrupting it for whichever
+        # invocation loses the race ("mapfs file copy error: ... no such
+        # file or directory"). Reproduced and confirmed empirically, not
+        # assumed — a single sequential run first avoids it entirely by
+        # populating the cache before pre-commit's hooks can race on it.
+        # Cache dir must match the hook's own --cache-dir exactly (see
+        # .pre-commit-config.yaml's terraform_trivy args).
+        run: |
+          mkdir -p /tmp/.cache/trivy
+          trivy config --cache-dir /tmp/.cache/trivy --config .trivy.yaml terraform >/dev/null
+
       - name: pre-commit
         uses: pre-commit/action@v3.0.1
