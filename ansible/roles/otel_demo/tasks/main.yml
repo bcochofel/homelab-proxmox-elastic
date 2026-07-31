@@ -1,0 +1,172 @@
+---
+# tasks file for otel_demo — check out the upstream compose project and
+# redirect its telemetry to the self-managed APM Server instead of the
+# demo's own otel-collector -> Jaeger/Grafana/Prometheus path.
+#
+# Every override below lands in {{ elastic_base_dir }}/otel-demo/ansible-managed/
+# and is wired in purely through compose.override.yaml (which Docker Compose
+# merges automatically alongside compose.yaml, no -f flag needed) — none of
+# it ever touches a file *tracked* by the upstream git checkout. That's
+# deliberate, not incidental: an earlier version of this role patched
+# tracked files in place (nginx templates, the otel-collector extras
+# config), which meant every successful run left the checkout with local
+# modifications that blocked the *next* run's `git checkout` outright
+# (worked around at the time with force: true, which just traded that
+# failure for permanent "changed" noise on every run instead). Keeping
+# every override external means the checkout always stays byte-for-byte
+# clean, so it's genuinely idempotent: `git checkout` only reports changed
+# when the pinned tag itself moves, not depending on this role's ordering
+# or history and not needing force at all.
+#
+# Redirection to the APM Server happens at the COLLECTOR, not by rewriting
+# every microservice's OTEL_COLLECTOR_HOST/PORT env vars. An earlier version
+# of this role did the latter and it broke the collector itself:
+# otelcol-config.yml's own OTLP *receiver* binds to that same
+# OTEL_COLLECTOR_HOST/PORT_GRPC pair (it's reused for both "where the
+# collector listens" and "where everyone else sends"), so pointing it at
+# the APM Server's IP made the collector try to bind an address that isn't
+# local to this VM at all ("cannot assign requested address"), crash-
+# looping it. The upstream project ships a purpose-built seam for exactly
+# this instead: src/otel-collector/otelcol-config-extras.yml, always loaded
+# last and merged over the base config — we render our own copy of it
+# (adding an otlp exporter pointed at the APM Server, wired into the traces
+# pipeline) and mount it over the container's /etc/otelcol-config-extras.yml
+# via compose.override.yaml, leaving the collector's own bind address (and
+# every other service's local config) untouched. Verified end-to-end on a
+# live cluster: APM Server's own log shows `TraceService/Export` calls
+# arriving from the otel-demo VM.
+#
+# Known limitation: browser-side RUM traces (PUBLIC_OTEL_EXPORTER_OTLP_
+# TRACES_ENDPOINT, proxied through frontend-proxy's own Envoy routing) are
+# NOT redirected by this — out of scope for now, they still target the
+# bundled otel-collector, which is fine since the collector now forwards
+# everything it receives (RUM included) on to the APM Server anyway.
+#
+# Two more fixes below exist only because this project's Packer template
+# disables IPv6 at the kernel level on every VM (packer/ubuntu-26.04's
+# ipv6.disable=1 GRUB param — see CLAUDE.md). Several of the demo's own
+# services default to dual-stack (IPv4 + IPv6) listeners and crash outright
+# when the kernel refuses to create an IPv6 socket at all:
+#   - image-provider and telemetry-docs (both nginx-unprivileged-based)
+#     hardcode `listen [::]:PORT;` in their nginx.conf.template. Fixed with
+#     our own copies of those two templates (files/*-nginx.conf.template,
+#     IPv6 listen line already removed — a maintenance point to re-sync by
+#     hand if upstream's templates change on an otel_demo_version bump,
+#     same manual-sync trade-off this project already accepts elsewhere for
+#     elastic_base_dir/elastic_agent_version).
+#   - flagd-ui (Elixir/Phoenix) hardcodes `ip: {0, 0, 0, 0, 0, 0, 0, 0}` in
+#     its release's runtime.exs. Fixed by extracting that exact file from
+#     the published image (it's release-version-specific, discovered
+#     dynamically rather than hardcoded) and patching the bind tuple.
+# Both fixes patch the actual file the running container uses, since the
+# published ghcr.io images don't read from the vendored source tree at
+# runtime — editing files under the checkout's own src/ has no effect
+# unless something bind-mounts them over the image's baked-in copies.
+
+- name: Checkout opentelemetry-demo (pinned tag)
+  ansible.builtin.git:
+    repo: https://github.com/open-telemetry/opentelemetry-demo.git
+    dest: "{{ elastic_base_dir }}/otel-demo"
+    version: "{{ otel_demo_version }}"
+    depth: 1
+  become: true
+
+- name: Create the ansible-managed overrides directory
+  ansible.builtin.file:
+    path: "{{ elastic_base_dir }}/otel-demo/ansible-managed"
+    state: directory
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: "0755"
+  become: true
+
+- name: Copy the IPv6-stripped nginx templates for image-provider/telemetry-docs
+  ansible.builtin.copy:
+    src: "{{ item }}-nginx.conf.template"
+    dest: "{{ elastic_base_dir }}/otel-demo/ansible-managed/{{ item }}-nginx.conf.template"
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: "0644"
+  loop:
+    - image-provider
+    - telemetry-docs
+  become: true
+  notify: Restart otel-demo
+
+- name: Render otel-collector extras config to export traces to the APM Server
+  ansible.builtin.template:
+    src: otelcol-config-extras.yml.j2
+    dest: "{{ elastic_base_dir }}/otel-demo/ansible-managed/otelcol-config-extras.yml"
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: "0644"
+  become: true
+  notify: Restart otel-demo
+
+- name: Resolve compose's rendered config for flagd-ui (to determine its exact image reference)
+  # NOT `config --images flagd-ui` — empirically that flag ignores the
+  # service filter and returns every image in the project, breaking any
+  # naive single-line assumption about its output.
+  ansible.builtin.command:
+    cmd: >-
+      docker compose --project-directory {{ elastic_base_dir }}/otel-demo
+      -f {{ elastic_base_dir }}/otel-demo/compose.yaml config flagd-ui --format json
+  register: _flagd_ui_config
+  changed_when: false
+  become: true
+
+- name: Extract the flagd-ui image reference
+  ansible.builtin.set_fact:
+    _flagd_ui_image: "{{ (_flagd_ui_config.stdout | from_json).services['flagd-ui'].image }}"
+
+- name: Find the release directory baked into the flagd-ui image
+  ansible.builtin.command:
+    cmd: >-
+      docker run --rm --entrypoint find {{ _flagd_ui_image }}
+      /app/releases -mindepth 1 -maxdepth 1 -type d
+  register: _flagd_ui_release_dir
+  changed_when: false
+  become: true
+
+- name: Extract flagd-ui's runtime.exs so its IPv6 bind address can be patched
+  # Guarded by `creates` so this (and the idempotent `replace` below) only
+  # runs once per otel_demo_version — re-extracting every run would pull
+  # the pristine, unpatched file back in and undo the patch each time.
+  # Bumping otel_demo_version means deleting this file by hand to pick up
+  # the new image's runtime.exs (same trade-off already accepted elsewhere
+  # in this project for elastic_agent_version/elastic_base_dir).
+  ansible.builtin.command:
+    cmd: >-
+      sh -c 'cid=$(docker create {{ _flagd_ui_image }}) &&
+      docker cp "$cid:{{ _flagd_ui_release_dir.stdout | trim }}/runtime.exs"
+      {{ elastic_base_dir }}/otel-demo/ansible-managed/flagd-ui-runtime.exs &&
+      docker rm "$cid" >/dev/null'
+  args:
+    creates: "{{ elastic_base_dir }}/otel-demo/ansible-managed/flagd-ui-runtime.exs"
+  become: true
+
+- name: Patch flagd-ui's runtime.exs to bind IPv4-only (host has IPv6 disabled at the kernel)
+  ansible.builtin.replace:
+    path: "{{ elastic_base_dir }}/otel-demo/ansible-managed/flagd-ui-runtime.exs"
+    regexp: 'ip: \{0, 0, 0, 0, 0, 0, 0, 0\}'
+    replace: "ip: {0, 0, 0, 0}"
+  become: true
+  notify: Restart otel-demo
+
+- name: Render compose.override.yaml (mounts the ansible-managed overrides over the published images' baked-in copies)
+  ansible.builtin.template:
+    src: compose.override.yaml.j2
+    dest: "{{ elastic_base_dir }}/otel-demo/compose.override.yaml"
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: "0644"
+  become: true
+  notify: Restart otel-demo
+  vars:
+    flagd_ui_release_dir: "{{ _flagd_ui_release_dir.stdout | trim }}"
+
+- name: Bring up the OpenTelemetry demo stack
+  community.docker.docker_compose_v2:
+    project_src: "{{ elastic_base_dir }}/otel-demo"
+    state: present
+  become: true

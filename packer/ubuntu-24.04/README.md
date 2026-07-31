@@ -35,7 +35,7 @@ Packer HTTP server), then a chain of provisioner scripts configures the
 image before it's converted to a Proxmox template. Terraform later clones
 this template per node (see `docs/TERRAFORM.md`, once written).
 
-```
+```text
 ISO boot --autoinstall--> cloud-init (users, disk layout, packages,
   sysctl/limits, SSH hardening, security-tool timers)
     --provisioners--> proxy config -> custom CA -> Docker install
@@ -81,7 +81,7 @@ render docker-compose files.
 **Consequences.** Changing `vm_max_map_count` means rebuilding the template,
 full stop — there's no Ansible-side check that would catch a template built
 against a stale value. `elastic_base_dir` is the one value still duplicated:
-Packer bakes the directory, and `ansible/group_vars/all.yml` needs the same
+Packer bakes the directory, and `ansible/inventory/group_vars/all.yml` needs the same
 path to know where to render compose files, so that one has to be kept in
 sync by hand. This trade-off was made deliberately: every VM boots ready to
 run Elasticsearch immediately, and Ansible's job is reduced to "render
@@ -154,7 +154,7 @@ overriding in `variables.auto.pkrvars.hcl` when it should differ from that defau
 ## Known coupling to watch
 
 - `elastic_base_dir` (here) must match `elastic_base_dir` in
-  `ansible/group_vars/all.yml` — Ansible still needs that path, unlike
+  `ansible/inventory/group_vars/all.yml` — Ansible still needs that path, unlike
   `vm_max_map_count` which is Packer-only (see ADR-1).
 - `username` here must match the `ansible_user` Terraform writes into the
   generated inventory, since Ansible connects as that user.

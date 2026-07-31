@@ -1,0 +1,4 @@
+---
+# Kibana role tuning (hand-authored).
+# Derives the ES endpoint list from the elasticsearch group at template time.
+kibana_publicbaseurl: ""  # set to http://<kibana-ip>:5601 if you want deep links correct

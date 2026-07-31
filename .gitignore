@@ -60,7 +60,6 @@ secrets/
 *.retry
 .ansible/
 ansible.log
-ansible/inventory
 
 # Python
 __pycache__/

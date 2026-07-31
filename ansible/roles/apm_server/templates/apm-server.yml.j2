@@ -1,0 +1,17 @@
+# Managed by Ansible — self-managed APM Server (not the Fleet-managed APM
+# integration; Fleet Server isn't up yet, see "Security sequencing" in
+# CLAUDE.md). Rendered directly by Jinja2 rather than via Beats' own
+# runtime ${VAR} env-var expansion, so the Elasticsearch hosts list doesn't
+# depend on getting Beats' complex-value env-var syntax exactly right.
+apm-server:
+  host: "0.0.0.0:{{ apm_server_port }}"
+
+output.elasticsearch:
+  hosts:
+{% for node in groups['elasticsearch'] %}
+    - "{{ hostvars[node].ansible_host }}:{{ es_http_port }}"
+{% endfor %}
+
+logging:
+  level: info
+  to_stderr: true

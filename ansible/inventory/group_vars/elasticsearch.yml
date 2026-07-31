@@ -1,0 +1,21 @@
+---
+# Elasticsearch role tuning (hand-authored).
+# cluster_name, es_seed_hosts, es_initial_master_nodes come from the generated
+# inventory vars (Terraform-derived). Everything else is yours to tune.
+
+# Memory lock — pair bootstrap.memory_lock with the memlock ulimit in compose,
+# or ES refuses to start.
+es_bootstrap_memory_lock: true
+
+# Single bootstrap toggle. Leave true for the very first cluster formation,
+# then set false and re-run so initial_master_nodes is dropped (safe steady state).
+#
+# Checked-in value is false, matching this homelab's already-bootstrapped,
+# steady-state cluster (see docs/ANSIBLE.md's Bootstrap lifecycle section) —
+# it is NOT the correct starting value for a brand-new cluster. Bootstrapping
+# one from scratch (fresh ES data volumes, no existing cluster state) means
+# setting this to true first, running once, confirming the cluster reaches
+# green, then setting it back to false and re-running for safe steady state.
+# Running with false against data volumes that have never formed a cluster
+# will not bootstrap it.
+es_bootstrap_cluster: false

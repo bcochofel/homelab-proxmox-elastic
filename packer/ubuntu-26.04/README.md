@@ -87,7 +87,7 @@ render docker-compose files.
 **Consequences.** Changing `vm_max_map_count` means rebuilding the template,
 full stop — there's no Ansible-side check that would catch a template built
 against a stale value. `elastic_base_dir` is the one value still duplicated:
-Packer bakes the directory, and `ansible/group_vars/all.yml` needs the same
+Packer bakes the directory, and `ansible/inventory/group_vars/all.yml` needs the same
 path to know where to render compose files, so that one has to be kept in
 sync by hand. This trade-off was made deliberately: every VM boots ready to
 run Elasticsearch immediately, and Ansible's job is reduced to "render
@@ -310,7 +310,7 @@ Elastic Agent *package* the same way was an obvious speed win — six VMs no
 longer each need to fetch and install it during the Ansible run. The
 complication: unlike Docker or Trivy, Elastic Agent's version isn't
 independent of the rest of this project — it needs to track
-`ansible/group_vars/all.yml`'s `stack_version` for compatibility with the
+`ansible/inventory/group_vars/all.yml`'s `stack_version` for compatibility with the
 ES cluster it ends up monitoring. Baking a specific version into an
 immutable template creates exactly the kind of duplicated version state
 `stack_version`'s single-source-of-truth design (see `CLAUDE.md`) exists to
@@ -321,23 +321,21 @@ avoid.
 `artifacts.elastic.co/downloads/beats/elastic-agent/` (same "exact pinned
 version, no repo-latest drift" approach as Trivy's install script), installs
 it, then immediately stops and disables the systemd service — nothing runs
-until Ansible's (not yet built) `elastic_agent` role renders
-`elastic-agent.yml` and enables it, once an ES cluster actually exists to
-connect to. `elastic_agent_version` defaults to `9.4.2`, matching
-`ansible/group_vars/all.yml`'s `stack_version` at the time this was
-written — same manual-sync trade-off ADR-1 already accepts for
-`elastic_base_dir`.
+until Ansible's `elastic_agent` role renders `elastic-agent.yml` and enables
+it, once an ES cluster actually exists to connect to. `elastic_agent_version`
+defaults to `9.4.2`, matching `ansible/inventory/group_vars/all.yml`'s
+`stack_version` at the time this was written — same manual-sync trade-off
+ADR-1 already accepts for `elastic_base_dir`.
 
 **Consequences.** Unlike `elastic_base_dir` drift (harmless — worst case,
 compose renders to the wrong-but-consistent path), an Elastic Agent version
 drift is a real compatibility risk: the first time `stack_version` gets
 bumped and rolled out via playbook *without* also rebuilding this template,
 every already-cloned VM's pre-installed agent silently stays on the old
-version. **The `elastic_agent` Ansible role (not yet built — see
-`TODO.md`'s Phase 1) must check the installed Elastic Agent version against
-`stack_version` and reinstall via the same `.deb` URL pattern above if
-they've drifted** — Packer can only get new clones right going forward, it
-can't fix VMs cloned from an already-stale template.
+version. **The `elastic_agent` Ansible role checks the installed Elastic
+Agent version against `stack_version` and reinstalls via the same `.deb`
+URL pattern above if they've drifted** — Packer can only get new clones
+right going forward, it can't fix VMs cloned from an already-stale template.
 
 ## Variables reference
 
@@ -357,7 +355,7 @@ Everything else (VM sizing, packages, timezone, NTP, `vm_max_map_count`,
 ## Known coupling to watch
 
 - `elastic_base_dir` (here) must match `elastic_base_dir` in
-  `ansible/group_vars/all.yml` — Ansible still needs that path, unlike
+  `ansible/inventory/group_vars/all.yml` — Ansible still needs that path, unlike
   `vm_max_map_count` which is Packer-only (see ADR-1).
 - `username` here must match the `ansible_user` Terraform writes into the
   generated inventory, since Ansible connects as that user.

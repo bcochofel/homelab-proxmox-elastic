@@ -136,9 +136,10 @@ create the `terraform@pve` token if you haven't already.
 ## 3. Configure the cluster (Ansible)
 
 ```bash
+source .venv/bin/activate   # from repo root
 cd ansible
-../.venv/bin/ansible-galaxy collection install -r requirements.yml
-../.venv/bin/ansible-playbook site.yml
+ansible-galaxy collection install -r requirements.yml
+ansible-playbook playbooks/site.yml
 ```
 
 Runs bootstrap -> Elasticsearch -> Kibana -> APM Server -> OTel demo ->
@@ -157,6 +158,7 @@ green).
 ## Adding a node
 
 Append to `es_nodes` in `terraform.tfvars`, then `terraform apply`
-(regenerates the inventory) followed by `ansible-playbook site.yml` (from
-the `.venv/`). Once the cluster is healthy, set `es_bootstrap_cluster: false`
-in `ansible/group_vars/elasticsearch.yml` and re-run.
+(regenerates the inventory) followed by `ansible-playbook playbooks/site.yml`
+(with `.venv/` activated). Once the cluster is healthy, set
+`es_bootstrap_cluster: false` in `ansible/inventory/group_vars/elasticsearch.yml`
+and re-run.

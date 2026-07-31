@@ -72,9 +72,9 @@ reserved for this cluster — additional nodes take the next free IP in range
   `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`) to point at the APM Server VM instead
   of the demo's bundled Jaeger/Grafana/Prometheus stack. It also runs a
   standalone Elastic Agent like the rest of the fleet.
-- **Only `hosts.ini` is generated.** `ansible/group_vars/` is hand-authored and
-  must never be overwritten by Terraform.
-- **Stack version is pinned in `group_vars/all.yml`** (`stack_version`), NOT in
+- **Only `hosts.ini` is generated.** `ansible/inventory/group_vars/` is
+  hand-authored and must never be overwritten by Terraform.
+- **Stack version is pinned in `inventory/group_vars/all.yml`** (`stack_version`), NOT in
   Terraform. Bump there, roll out via playbook.
 - **Packer configures the Ubuntu OS with everything the Elastic Stack
   containers need to run** — `vm.max_map_count`, memlock/nofile ulimits, and
@@ -84,7 +84,7 @@ reserved for this cluster — additional nodes take the next free IP in range
   side (not even for verification) — its `common` role only checks Docker
   is present and renders/runs docker-compose. Changing `vm_max_map_count` or
   `elastic_base_dir` means rebuilding the template; `elastic_base_dir` also
-  has to stay in sync with `ansible/group_vars/all.yml`'s copy, since Ansible
+  has to stay in sync with `ansible/inventory/group_vars/all.yml`'s copy, since Ansible
   still needs that path to know where to render compose files.
 - **Security is OFF for now** (`es_security_enabled: false`). Adding TLS/auth is
   a planned later exercise (local CA via `elasticsearch-certutil`, run-once play).
@@ -116,7 +116,7 @@ reserved for this cluster — additional nodes take the next free IP in range
   per-clone baseline to initialize. Shipping that JSON into Elasticsearch
   is still open, tracked in `TODO.md`.
 - **Terraform and Ansible are decoupled** — no `local-exec` chaining. Run
-  `terraform apply` (from `terraform/`) then `ansible-playbook site.yml`
+  `terraform apply` (from `terraform/`) then `ansible-playbook playbooks/site.yml`
   (from `ansible/`) as two separate, explicit commands.
 - **The Makefile only has non-mutating targets** (`packer-init`, `tf-init`,
   `ansible-deps`, plus tool install/check). `packer build`, `terraform
@@ -208,7 +208,7 @@ write credential at all.
   validate/init/fmt/version`; `ansible-lint`, `ansible-inventory`,
   `ansible-galaxy collection list` (both bare and via `.venv/bin/`, since
   Ansible only exists inside the virtualenv now), and the known-safe exact
-  `ansible-playbook site.yml --check`/`--syntax-check` invocations in both
+  `ansible-playbook playbooks/site.yml --check`/`--syntax-check` invocations in both
   forms (only those exact strings — flags aren't wildcarded more broadly,
   since prefix-only matching can't safely tell "check" from a real run once
   the args reorder); read-only `git` (`status`, `diff`, `log`, `show`,
@@ -382,8 +382,8 @@ that cost real debugging time once already:
 
 ## Standing rules
 
-- **Never overwrite `group_vars/`.** Terraform generates `hosts.ini` inventory;
-  `group_vars/` is hand-authored.
+- **Never overwrite `inventory/group_vars/`.** Terraform generates `hosts.ini`
+  inventory; `inventory/group_vars/` is hand-authored.
 - **DRY compose:** identical `docker-compose.yml` per node type, differentiated
   only by per-node `.env` files (Option A).
 - Run `terraform validate` on every change — the provider schema will be
@@ -393,7 +393,7 @@ that cost real debugging time once already:
 
 ## Bootstrap lifecycle (important)
 
-`es_bootstrap_cluster: true` (in `group_vars/elasticsearch.yml`) emits
+`es_bootstrap_cluster: true` (in `inventory/group_vars/elasticsearch.yml`) emits
 `cluster.initial_master_nodes` for first formation. After the cluster is green
 once, set it to `false` and re-run for safe steady state.
 
@@ -434,7 +434,7 @@ have no Makefile target — run them directly (Ansible via the venv):
 ```bash
 cd packer/ubuntu-24.04 && packer build .
 cd terraform && terraform apply
-cd ansible && ../.venv/bin/ansible-playbook site.yml
+cd ansible && ../.venv/bin/ansible-playbook playbooks/site.yml
 ```
 
 ## Before first run

@@ -1,0 +1,6 @@
+---
+- name: Restart otel-demo
+  community.docker.docker_compose_v2:
+    project_src: "{{ elastic_base_dir }}/otel-demo"
+    state: restarted
+  become: true

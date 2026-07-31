@@ -1,0 +1,58 @@
+---
+# tasks file for elastic_agent
+#
+# Packer pre-installs the Elastic Agent package on every VM (disabled — see
+# ADR-8 in packer/ubuntu-26.04/README.md), pinned to whatever
+# elastic_agent_version was baked into the template at build time. This
+# role's job is to render the standalone config and enable the service —
+# but it must first check that the pre-installed version still matches
+# stack_version, since a stack_version bump rolled out via playbook without
+# also rebuilding the template would otherwise leave every VM's agent
+# silently stale (see TODO.md's Phase 1 Ansible item).
+
+- name: Check installed Elastic Agent version
+  ansible.builtin.command: dpkg-query -W -f='${Version}' elastic-agent
+  register: _elastic_agent_installed_version
+  changed_when: false
+  failed_when: false
+
+- name: Reinstall Elastic Agent if its version has drifted from stack_version
+  when: _elastic_agent_installed_version.stdout != stack_version
+  become: true
+  block:
+    - name: Determine dpkg architecture
+      ansible.builtin.command: dpkg --print-architecture
+      register: _dpkg_arch
+      changed_when: false
+
+    - name: Download the pinned Elastic Agent .deb
+      ansible.builtin.get_url:
+        url: "https://artifacts.elastic.co/downloads/beats/elastic-agent/elastic-agent-{{ stack_version }}-{{ _dpkg_arch.stdout }}.deb"
+        dest: "/tmp/elastic-agent-{{ stack_version }}-{{ _dpkg_arch.stdout }}.deb"
+        mode: "0644"
+
+    - name: Install the pinned Elastic Agent .deb
+      ansible.builtin.apt:
+        deb: "/tmp/elastic-agent-{{ stack_version }}-{{ _dpkg_arch.stdout }}.deb"
+
+    - name: Remove the downloaded .deb
+      ansible.builtin.file:
+        path: "/tmp/elastic-agent-{{ stack_version }}-{{ _dpkg_arch.stdout }}.deb"
+        state: absent
+
+- name: Render elastic-agent.yml
+  ansible.builtin.template:
+    src: elastic-agent.yml.j2
+    dest: "{{ elastic_agent_config_path }}"
+    owner: root
+    group: root
+    mode: "0600"
+  become: true
+  notify: Restart elastic-agent
+
+- name: Enable and start Elastic Agent
+  ansible.builtin.systemd:
+    name: elastic-agent
+    enabled: true
+    state: started
+  become: true
