@@ -32,17 +32,27 @@ inputs:
     id: docker-metrics-{{ inventory_hostname }}
     data_stream.namespace: default
     use_output: default
-    hosts: ["unix:///var/run/docker.sock"]
+    # hosts must be per-stream, not once at the input level — verified
+    # empirically against a live agent: an input-level hosts: left every
+    # stream's underlying metricbeat module missing its required `hosts`
+    # field ("missing required field accessing 'metricbeat.modules.0.hosts'"),
+    # degrading the whole docker/metrics component despite otherwise-valid
+    # config.
     streams:
       - metricsets: [cpu]
+        hosts: ["unix:///var/run/docker.sock"]
         data_stream.dataset: docker.cpu
       - metricsets: [memory]
+        hosts: ["unix:///var/run/docker.sock"]
         data_stream.dataset: docker.memory
       - metricsets: [network]
+        hosts: ["unix:///var/run/docker.sock"]
         data_stream.dataset: docker.network
       - metricsets: [diskio]
+        hosts: ["unix:///var/run/docker.sock"]
         data_stream.dataset: docker.diskio
       - metricsets: [container]
+        hosts: ["unix:///var/run/docker.sock"]
         data_stream.dataset: docker.container
 
   - type: journald

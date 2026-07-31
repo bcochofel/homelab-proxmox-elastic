@@ -1,16 +1,21 @@
 # Managed by Ansible (otel_demo role) — do not edit on the host.
 # Docker Compose merges this automatically alongside compose.yaml (no -f
-# flag needed). Mounts patched copies of vendored config over the paths the
-# *published* ghcr.io images bake those files into — editing the checked-out
-# src/ tree alone has no effect, since these services pull prebuilt images
-# rather than building locally.
+# flag needed) and replaces any volume mount whose target path collides
+# with one already defined there (verified empirically for otel-collector,
+# which already mounts something at /etc/otelcol-config-extras.yml).
+# Every source path here lives under ./ansible-managed/, never under
+# ./src/ — the checked-out git tree stays untouched so `git checkout` on
+# the next run never sees local modifications to reset.
 services:
   image-provider:
     volumes:
-      - ./src/image-provider/nginx.conf.template:/nginx.conf.template:ro
+      - ./ansible-managed/image-provider-nginx.conf.template:/nginx.conf.template:ro
   telemetry-docs:
     volumes:
-      - ./src/telemetry-docs/nginx.conf.template:/nginx.conf.template:ro
+      - ./ansible-managed/telemetry-docs-nginx.conf.template:/nginx.conf.template:ro
   flagd-ui:
     volumes:
-      - ./flagd-ui-runtime.exs:{{ flagd_ui_release_dir }}/runtime.exs:ro
+      - ./ansible-managed/flagd-ui-runtime.exs:{{ flagd_ui_release_dir }}/runtime.exs:ro
+  otel-collector:
+    volumes:
+      - ./ansible-managed/otelcol-config-extras.yml:/etc/otelcol-config-extras.yml

@@ -31,6 +31,13 @@ its bundled Jaeger/Grafana/Prometheus stack. Every VM in the topology,
 including `otel-demo`, also runs a standalone Elastic Agent for OS + Docker
 metrics/logs.
 
+## Verify
+
+- Kibana: `http://192.168.68.33:5601`
+- Elasticsearch: `http://192.168.68.30:9200`
+- APM Server: `http://192.168.68.34:8200`
+- OTel demo frontend: `http://192.168.68.35:8080`
+
 ## Design decisions
 
 - **Provider:** `bpg/proxmox` (deliberate choice over Telmate).
