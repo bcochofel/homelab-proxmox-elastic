@@ -5,7 +5,7 @@
   tasks:
     - name: Wait for cluster health to be green
       ansible.builtin.uri:
-        url: "http://localhost:{{ es_http_port }}/_cluster/health"
+        url: "http://127.0.0.1:{{ es_http_port }}/_cluster/health"
         return_content: true
       register: _health
       until: >
@@ -28,7 +28,7 @@
   tasks:
     - name: Wait for Kibana API status
       ansible.builtin.uri:
-        url: "http://localhost:{{ kibana_port }}/api/status"
+        url: "http://127.0.0.1:{{ kibana_port }}/api/status"
         return_content: true
       register: _kb
       until: _kb.status == 200
@@ -41,7 +41,7 @@
   tasks:
     - name: Wait for APM Server root endpoint
       ansible.builtin.uri:
-        url: "http://localhost:{{ apm_server_port }}/"
+        url: "http://127.0.0.1:{{ apm_server_port }}/"
         return_content: true
       register: _apm
       until: _apm.status == 200
@@ -54,7 +54,7 @@
   tasks:
     - name: Wait for the demo frontend (via frontend-proxy) to respond
       ansible.builtin.uri:
-        url: "http://localhost:8080/"
+        url: "http://127.0.0.1:8080/"
         status_code: [200, 301, 302]
       register: _otel
       until: _otel.status in [200, 301, 302]

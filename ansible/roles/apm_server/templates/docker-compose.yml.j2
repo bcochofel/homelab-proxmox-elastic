@@ -13,8 +13,12 @@ services:
       - ./apm-server.yml:/usr/share/apm-server/apm-server.yml:ro
     ports:
       - "${APM_SERVER_PORT}:8200"
+    # No curl (or wget/nc) in this image — verified empirically, unlike the
+    # ES/Kibana images. /bin/sh here is actually bash, so a bare TCP-connect
+    # via /dev/tcp needs nothing extra and is enough to confirm the server
+    # is accepting connections.
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:8200/ || exit 1"]
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8200 || exit 1"]
       interval: 20s
       timeout: 10s
       retries: 12

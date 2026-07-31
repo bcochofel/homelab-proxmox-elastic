@@ -87,3 +87,12 @@ playbook run.
 formation. Once green, set it to `false` in
 `inventory/group_vars/elasticsearch.yml` and re-run for safe steady-state
 config.
+
+**The checked-in value is `false`** — it tracks this homelab's own
+already-bootstrapped cluster, not a template for a fresh one. Standing up a
+brand-new cluster (empty ES data volumes, no prior cluster state) means
+flipping it to `true` first, running once, confirming `_cluster/health`
+reaches green, then flipping it back to `false` and re-running. Running
+with `false` against data volumes that have never formed a cluster will
+not bootstrap it — there's no in-role check that catches this, since the
+role has no way to distinguish "steady state" from "never bootstrapped."

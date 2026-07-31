@@ -1,0 +1,16 @@
+# Managed by Ansible (otel_demo role) — do not edit on the host.
+# Docker Compose merges this automatically alongside compose.yaml (no -f
+# flag needed). Mounts patched copies of vendored config over the paths the
+# *published* ghcr.io images bake those files into — editing the checked-out
+# src/ tree alone has no effect, since these services pull prebuilt images
+# rather than building locally.
+services:
+  image-provider:
+    volumes:
+      - ./src/image-provider/nginx.conf.template:/nginx.conf.template:ro
+  telemetry-docs:
+    volumes:
+      - ./src/telemetry-docs/nginx.conf.template:/nginx.conf.template:ro
+  flagd-ui:
+    volumes:
+      - ./flagd-ui-runtime.exs:{{ flagd_ui_release_dir }}/runtime.exs:ro
