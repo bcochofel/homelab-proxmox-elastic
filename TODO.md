@@ -20,18 +20,32 @@ Roughly in dependency order — later phases build on earlier ones.
       (see `packer/ubuntu-26.04/README.md`'s ADR-6) and re-apply — confirmed
       fixed: all six VMs now come up on their configured static IPs instead
       of DHCP
-- [ ] Ansible: `apm_server`, `otel_demo`, `elastic_agent` roles + matching
-      playbooks (separate PR from Terraform, not started). The
-      `elastic_agent` role only needs to render `elastic-agent.yml` and
-      enable/start the service (Packer pre-installs the package, disabled
-      — see ADR-8 in `packer/ubuntu-26.04/README.md`) — but it must also
-      check the installed Elastic Agent version against `stack_version`
-      and reinstall via Elastic's `.deb` if they've drifted, since a
-      `stack_version` bump rolled out without a template rebuild would
-      otherwise leave every VM's pre-installed agent silently stale
-- [ ] All six VMs green end to end: ES cluster healthy, Kibana up, APM
-      Server up, OTel demo shipping traces to APM Server, every VM running
-      a standalone Elastic Agent for OS + Docker metrics/logs
+- [x] Ansible: `apm_server`, `otel_demo`, `elastic_agent` roles + matching
+      playbooks — merged (PR #7). Also moved `group_vars/` under
+      `inventory/` and every playbook under `playbooks/` (see
+      `docs/ANSIBLE.md`). `elastic_agent` renders `elastic-agent.yml` and
+      enables/starts the service (Packer pre-installs the package, disabled
+      — see ADR-8 in `packer/ubuntu-26.04/README.md`), and checks the
+      installed version against `stack_version`, reinstalling via Elastic's
+      `.deb` if they've drifted
+- [x] All six VMs green end to end: ES cluster healthy (3/3, green), Kibana
+      up, APM Server up, OTel demo's 19 containers all healthy and shipping
+      real trace data to APM Server, every VM running a standalone Elastic
+      Agent reporting `HEALTHY`. Getting here surfaced (and fixed) several
+      real bugs only visible on a live run, not from inspection — see
+      PR #7's later commits and `CLAUDE.md` for the full list: Kibana's
+      `elasticsearch.hosts` needing a whitespace-free JSON array (not a
+      comma-joined string), the apm-server image having no curl/wget/nc at
+      all (its healthcheck always failed despite the server working fine),
+      several otel-demo services crash-looping on this template's
+      IPv6-disabled kernel, the otel-collector's own OTLP receiver sharing
+      (and breaking on) the same env var used to redirect other services'
+      export target, and `elastic_agent`'s `docker/metrics` input silently
+      degraded because `hosts` was set once at the input level instead of
+      per-stream. The `otel_demo` role was also redesigned so re-running
+      `site.yml` is genuinely idempotent (`changed=0` on a repeat run,
+      verified, not assumed) — the original approach patched files tracked
+      by the vendored git checkout, which broke idempotency by design
 
 ## Phase 2 — TLS + auth
 
