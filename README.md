@@ -44,32 +44,34 @@ No login — `xpack.security` is off (see below). Once the cluster is green,
 the OTel demo's `load-generator` keeps producing live traffic continuously,
 so there's always fresh data to look at.
 
-**APM** (most turnkey, since it's a dedicated app):
+Elastic reshuffles Kibana's left nav across versions and even lets each
+space pick "classic" vs. a solution-specific view — this project has
+already seen the exact app names differ between the two on the same
+Kibana instance (no separate "APM"/"Logs" entries in some views), so
+precise menu paths aren't documented here. The data underneath is stable
+regardless of nav layout — **Discover** with the right data view always
+works:
 
-- **Observability → APM → Services** lists every otel-demo microservice
-  (`checkout`, `cart`, `frontend`, `payment`, `recommendation`, etc.) plus
-  `otelcol_contrib` itself. Click one for throughput, latency, error rate,
-  and trace waterfalls.
-- **Service Map** gives a topology graph of who calls whom.
-
-**Logs** — `Discover` with the `logs-*` data view, or **Observability →
-Logs**. Key datasets: `system.syslog` (every VM's OS logs),
-`docker.container_logs` (every container's stdout/stderr), `apm.app.*`
-(per-service application logs from the otel-demo services), `apm.error`
-(captured exceptions). Filter on `data_stream.dataset` or
-`container.name`/`host.name` to narrow down.
-
-**Metrics** — **Observability → Infrastructure** for a host/container
-inventory view (CPU, memory), or `Discover` with `metrics-*` filtered to
-`data_stream.dataset` values like `system.cpu`, `system.memory`,
-`docker.cpu`, `docker.memory`. APM's own latency/throughput charts already
-pull from `metrics-apm.*` automatically — the APM app visualizes those for
-you, no need to browse them directly.
+- **Traces/APM data** — `traces-apm-default`, plus per-service
+  `logs-apm.app.*` (application logs) and `metrics-apm.*` (throughput,
+  latency). Covers every otel-demo microservice (`checkout`, `cart`,
+  `frontend`, `payment`, `recommendation`, etc.) and `otelcol_contrib`
+  itself. If your nav has a dedicated APM/Applications app, it visualizes
+  these same data streams (service list, trace waterfalls, service map)
+  instead of browsing them raw in Discover.
+- **Logs** — `logs-*` data view. Key datasets: `system.syslog` (every VM's
+  OS logs), `docker.container_logs` (every container's stdout/stderr),
+  `apm.app.*`, `apm.error` (captured exceptions). Filter on
+  `data_stream.dataset` or `container.name`/`host.name` to narrow down.
+- **Metrics** — `metrics-*` data view, filtered to `data_stream.dataset`
+  values like `system.cpu`, `system.memory`, `docker.cpu`,
+  `docker.memory`. An "Infrastructure" app, if present, gives a
+  host/container inventory view over the same data.
 
 If `Discover` shows no data the first time, check **Stack Management →
-Data Views** — the Observability apps (APM/Infrastructure/Logs) query
-`logs-*`/`metrics-*`/`traces-*` directly and usually don't need one, but
-`Discover` sometimes does.
+Data Views** — dedicated Observability apps typically query
+`logs-*`/`metrics-*`/`traces-*` directly and don't need one, but `Discover`
+sometimes does.
 
 ## Design decisions
 
