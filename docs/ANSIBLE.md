@@ -67,6 +67,20 @@ ansible-galaxy collection install -r requirements.yml
 ansible-playbook playbooks/site.yml
 ```
 
+Before a real run (or whenever inventory/connectivity is in doubt), check
+every host in `hosts.ini` is reachable and correctly named/grouped with a
+plain `ping` module call — no playbook, no roles, just SSH + inventory:
+
+```bash
+ansible all -m ping
+```
+
+A healthy cluster returns `SUCCESS` for `es-01`/`es-02`/`es-03`, `kibana`,
+`apm-server`, and `otel-demo`. `UNREACHABLE` points at SSH/`ansible_host`
+(wrong IP, VM not up, key not accepted); an inventory/group_vars parsing
+error surfaces here too, before it would otherwise fail deep into a
+playbook run.
+
 ## Bootstrap lifecycle
 
 `es_bootstrap_cluster: true` emits `cluster.initial_master_nodes` for first
