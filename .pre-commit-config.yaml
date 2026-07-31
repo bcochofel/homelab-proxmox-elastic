@@ -10,6 +10,17 @@ repos:
       - id: check-merge-conflict
       - id: no-commit-to-branch
 
+  # Markdown linting (markdownlint-cli2, the Node/JS engine — matches the
+  # davidanson.vscode-markdownlint VS Code extension already in use here.
+  # NOT the Ruby `mdl` gem that Ubuntu's own `markdownlint` apt package
+  # installs; that's an unrelated tool with an incompatible config format).
+  # Config: .markdownlint.yaml at repo root, with a terraform/
+  # override for terraform-docs-generated README content.
+  - repo: https://github.com/DavidAnson/markdownlint-cli2
+    rev: v0.23.2
+    hooks:
+      - id: markdownlint-cli2
+
   # Packer formatting and validation (local: no maintained hook repo exists
   # for Packer HCL, so these shell out directly to the `packer` binary
   # already required by this project — same tool, no extra supply chain)
@@ -29,6 +40,24 @@ repos:
         language: system
         entry: bash -c 'set -e; for d in packer/*/; do packer validate -syntax-only "$d"; done'
         files: ^packer/.*\.(pkr|pkrvars)\.hcl$
+        pass_filenames: false
+
+      # local, not the upstream ansible/ansible-lint hook: that hook manages
+      # its own isolated pip env via additional_dependencies, which would
+      # duplicate — and drift from — the ansible-core/ansible-lint/collection
+      # versions already pinned in requirements.txt and installed into this
+      # project's own .venv/ by `make ansible-install`. Runs from ansible/ so
+      # ansible.cfg's roles_path and ansible/.ansible-lint both resolve, same
+      # as every documented ansible-playbook invocation in this repo.
+      # pass_filenames is deliberately false: ansible-lint needs the full
+      # role/play context, not individual file fragments (see
+      # https://github.com/ansible/ansible-lint/issues/611).
+      - id: ansible_lint
+        name: ansible-lint (project .venv)
+        description: Lints Ansible roles/playbooks with the project's own .venv
+        language: system
+        entry: bash -c 'cd ansible && ../.venv/bin/ansible-lint'
+        files: ^ansible/
         pass_filenames: false
 
   # Terraform formatting and validation
