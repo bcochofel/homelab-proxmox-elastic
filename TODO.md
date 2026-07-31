@@ -72,6 +72,25 @@ Roughly in dependency order — later phases build on earlier ones.
         Elastic Agent custom log/file input reading `trivy_report_path`)
         so it's queryable via CVE dashboards in Kibana instead of sitting
         as local files
+  - [ ] Still open: the daily scan reports ~5900 OS-package "vulnerabilities"
+        on a live es-01 (`ubuntu-26.04`) — verified via a live SSH scan, not
+        assumed. `trivy --distro ubuntu/26.04` does **not** help: OS
+        auto-detection already correctly identifies `ubuntu/26.04` from
+        `/etc/os-release`, so passing `--distro` explicitly produced byte-
+        identical results (also, it's still flagged `[EXPERIMENTAL]` in
+        Trivy 0.72.0). The real cause, confirmed on the same scan: **100% of
+        the ~5900 findings have no `FixedVersion`** — Trivy has no patch
+        available to report, so `--ignore-unfixed` drops the count to zero.
+        ~86% of the total (634 × 8 packages) is the Linux kernel's CVE list
+        being repeated in full across every kernel-derived binary package
+        (`linux-headers-*`, `linux-modules-*`, `linux-tools-*`, `bpftool`,
+        `linux-libc-dev`, `linux-perf`) — a known Trivy/Ubuntu-kernel
+        behavior, not specific to this template. Before adding
+        `--ignore-unfixed` to `30-install-trivy.sh`'s daily cron, weigh the
+        tradeoff: it also hides real vulnerabilities that already have a
+        published fix pending a package upgrade, not just kernel noise —
+        may want it paired with a separate signal for "fixable and
+        outstanding" rather than applied blanket.
 - [ ] Osquery-based package/CVE correlation — a DIY learning exercise
       cross-referencing osquery's package-inventory tables against the
       Trivy CVE data once it's landed in Elasticsearch (see the "still
