@@ -60,9 +60,11 @@ Ansible from `requirements.txt`, and installs the collections below.
 # from repo root, one-time setup:
 make install
 
-# from ansible/, day to day:
-../.venv/bin/ansible-galaxy collection install -r requirements.yml
-../.venv/bin/ansible-playbook playbooks/site.yml
+# day to day:
+source .venv/bin/activate
+cd ansible
+ansible-galaxy collection install -r requirements.yml
+ansible-playbook playbooks/site.yml
 ```
 
 ## Bootstrap lifecycle
