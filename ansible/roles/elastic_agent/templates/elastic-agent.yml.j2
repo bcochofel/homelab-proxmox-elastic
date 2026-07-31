@@ -1,0 +1,70 @@
+# Managed by Ansible — standalone Elastic Agent (not Fleet-managed; Fleet
+# Server isn't up yet, see "Security sequencing" in CLAUDE.md). Runs on
+# every host in the topology, including otel-demo.
+outputs:
+  default:
+    type: elasticsearch
+    hosts:
+{% for node in groups['elasticsearch'] %}
+      - "{{ hostvars[node].ansible_host }}:{{ es_http_port }}"
+{% endfor %}
+{% if es_security_enabled %}
+    # es_security_enabled is true but no credentials are configured here yet —
+    # this needs an api_key or username/password once Phase 2 (TLS/auth) lands.
+{% endif %}
+
+inputs:
+  - type: system/metrics
+    id: system-metrics-{{ inventory_hostname }}
+    data_stream.namespace: default
+    use_output: default
+    streams:
+      - metricsets: [cpu]
+        data_stream.dataset: system.cpu
+      - metricsets: [memory]
+        data_stream.dataset: system.memory
+      - metricsets: [network]
+        data_stream.dataset: system.network
+      - metricsets: [filesystem]
+        data_stream.dataset: system.filesystem
+
+  - type: docker/metrics
+    id: docker-metrics-{{ inventory_hostname }}
+    data_stream.namespace: default
+    use_output: default
+    hosts: ["unix:///var/run/docker.sock"]
+    streams:
+      - metricsets: [cpu]
+        data_stream.dataset: docker.cpu
+      - metricsets: [memory]
+        data_stream.dataset: docker.memory
+      - metricsets: [network]
+        data_stream.dataset: docker.network
+      - metricsets: [diskio]
+        data_stream.dataset: docker.diskio
+      - metricsets: [container]
+        data_stream.dataset: docker.container
+
+  - type: journald
+    id: journald-{{ inventory_hostname }}
+    data_stream.namespace: default
+    use_output: default
+    streams:
+      - data_stream.dataset: system.syslog
+
+  - type: filestream
+    id: docker-logs-{{ inventory_hostname }}
+    data_stream.namespace: default
+    use_output: default
+    streams:
+      - id: docker-container-logs-{{ inventory_hostname }}
+        data_stream.dataset: docker.container_logs
+        paths:
+          - /var/lib/docker/containers/*/*.log
+        parsers:
+          - container:
+              stream: all
+
+agent.logging.to_stderr: false
+agent.logging.to_files: true
+agent.logging.level: info

@@ -1,0 +1,8 @@
+---
+- name: Deploy Elasticsearch cluster
+  hosts: elasticsearch
+  gather_facts: true
+  # Roll one node at a time so quorum is preserved on re-runs/restarts.
+  serial: 1
+  roles:
+    - elasticsearch

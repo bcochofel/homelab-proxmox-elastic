@@ -1,0 +1,6 @@
+---
+- name: Deploy OpenTelemetry demo
+  hosts: otel_demo
+  gather_facts: true
+  roles:
+    - otel_demo

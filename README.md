@@ -40,15 +40,15 @@ metrics/logs.
   Ansible derives `discovery.seed_hosts` and `cluster.initial_master_nodes`
   from inventory. Self-assembling.
 - **Inventory:** only `ansible/inventory/hosts.ini` is generated.
-  `ansible/group_vars/` is hand-authored and never overwritten.
-- **Stack version:** pinned in `group_vars/all.yml` (`stack_version: 9.4.2`),
-  not in Terraform.
+  `ansible/inventory/group_vars/` is hand-authored and never overwritten.
+- **Stack version:** pinned in `inventory/group_vars/all.yml`
+  (`stack_version: 9.4.2`), not in Terraform.
 - **Host kernel:** `vm.max_map_count`, memlock/nofile ulimits, and the
   `/opt/elastic` base directory are baked into the Packer template via
   cloud-init. Ansible's `common` role only runs preflight checks — it never
   configures the OS.
 - **Security:** `xpack.security.enabled: false` for now. Flip `es_security_enabled`
-  in `group_vars/all.yml` to true later as a TLS/auth exercise.
+  in `inventory/group_vars/all.yml` to true later as a TLS/auth exercise.
 - **Decoupling:** Terraform and Ansible are run as separate, explicit
   commands — no `local-exec` chaining, and no Makefile wrapper around
   either write step, so the one command that actually changes

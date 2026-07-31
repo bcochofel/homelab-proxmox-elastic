@@ -1,0 +1,6 @@
+---
+- name: Deploy APM Server
+  hosts: apm_server
+  gather_facts: true
+  roles:
+    - apm_server

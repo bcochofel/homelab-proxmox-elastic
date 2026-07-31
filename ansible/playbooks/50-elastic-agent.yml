@@ -1,0 +1,6 @@
+---
+- name: Configure and enable Elastic Agent (all hosts)
+  hosts: all
+  gather_facts: true
+  roles:
+    - elastic_agent

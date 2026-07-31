@@ -1,0 +1,14 @@
+---
+profile: basic
+
+# var-naming[no-role-prefix] wants every role variable prefixed with the
+# role's own name (e.g. elasticsearch_http_port). This project instead uses
+# a shorter, deliberate convention documented throughout CLAUDE.md,
+# inventory/group_vars/, and the role templates: es_*/apm_server_*/etc. for
+# public vars (chosen so cross-host references like apm_server_port read
+# naturally from the otel_demo role), and a leading underscore for
+# internal/registered facts (_health, _dpkg_arch, ...). Renaming everything
+# to satisfy this rule would be a large, purely cosmetic, cross-cutting
+# change across docs and templates with no functional benefit.
+skip_list:
+  - var-naming[no-role-prefix]

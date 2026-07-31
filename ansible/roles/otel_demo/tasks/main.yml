@@ -1,0 +1,47 @@
+---
+# tasks file for otel_demo — check out the upstream compose project and
+# redirect its OTLP traces to the self-managed APM Server instead of the
+# demo's own otel-collector -> Jaeger/Grafana/Prometheus path.
+#
+# APM Server multiplexes OTLP/gRPC and OTLP/HTTP on the same port (8200,
+# since 7.12 — see docs/ANSIBLE.md), so overriding both the gRPC and HTTP
+# collector ports below to that same port works regardless of which
+# convention a given microservice in this polyglot demo happens to use
+# (some build OTEL_EXPORTER_OTLP_ENDPOINT off OTEL_COLLECTOR_PORT_HTTP
+# inline in compose.yaml, others inherit the root .env's GRPC-based one).
+#
+# Known limitation: browser-side RUM traces (PUBLIC_OTEL_EXPORTER_OTLP_
+# TRACES_ENDPOINT, proxied through frontend-proxy's own Envoy routing) are
+# NOT redirected by this — out of scope for now, they still target the
+# bundled otel-collector. The otel-collector container itself keeps running
+# too (it's a default service in the upstream compose.yaml, not behind a
+# profile) but receives no traffic once every exporter points elsewhere.
+
+- name: Checkout opentelemetry-demo (pinned tag)
+  ansible.builtin.git:
+    repo: https://github.com/open-telemetry/opentelemetry-demo.git
+    dest: "{{ elastic_base_dir }}/otel-demo"
+    version: "{{ otel_demo_version }}"
+    depth: 1
+  become: true
+
+- name: Point OTLP exports at the APM Server instead of the bundled collector
+  ansible.builtin.lineinfile:
+    path: "{{ elastic_base_dir }}/otel-demo/.env"
+    regexp: "^{{ item.key }}="
+    line: "{{ item.key }}={{ item.value }}"
+  loop:
+    - key: OTEL_COLLECTOR_HOST
+      value: "{{ hostvars[groups['apm_server'][0]].ansible_host }}"
+    - key: OTEL_COLLECTOR_PORT_GRPC
+      value: "{{ apm_server_port }}"
+    - key: OTEL_COLLECTOR_PORT_HTTP
+      value: "{{ apm_server_port }}"
+  become: true
+  notify: Restart otel-demo
+
+- name: Bring up the OpenTelemetry demo stack
+  community.docker.docker_compose_v2:
+    project_src: "{{ elastic_base_dir }}/otel-demo"
+    state: present
+  become: true

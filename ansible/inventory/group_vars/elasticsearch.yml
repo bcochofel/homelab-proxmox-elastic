@@ -1,0 +1,12 @@
+---
+# Elasticsearch role tuning (hand-authored).
+# cluster_name, es_seed_hosts, es_initial_master_nodes come from the generated
+# inventory vars (Terraform-derived). Everything else is yours to tune.
+
+# Memory lock — pair bootstrap.memory_lock with the memlock ulimit in compose,
+# or ES refuses to start.
+es_bootstrap_memory_lock: true
+
+# Single bootstrap toggle. Leave true for the very first cluster formation,
+# then set false and re-run so initial_master_nodes is dropped (safe steady state).
+es_bootstrap_cluster: true
