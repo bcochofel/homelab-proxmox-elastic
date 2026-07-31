@@ -1,0 +1,43 @@
+---
+# Static validation only — no Proxmox/LAN access from a GitHub-hosted
+# runner (see CLAUDE.md's "Agent-tooling rollout"). This mirrors what
+# pre-commit already checks locally, as a backstop for anyone who skipped
+# or bypassed hooks; it does not run `terraform apply`/`packer build`/a real
+# `ansible-playbook` against live hosts. That stays manual until a
+# self-hosted runner exists to hold the write credential instead of a
+# GitHub-hosted one.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  pre-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install pinned CLI tools (terraform, packer, trivy, tflint, terraform-docs, sops)
+        run: |
+          echo "$HOME/bin" >> "$GITHUB_PATH"
+          make check
+
+      - name: Install checkov
+        # Deliberately not part of `make install` locally either (see
+        # CLAUDE.md's "Credentials & secrets" / Makefile notes) — installed
+        # the same way a contributor would, via pip.
+        run: pip install checkov
+
+      - name: Ansible virtualenv + collections
+        run: make ansible-deps
+
+      - name: pre-commit
+        uses: pre-commit/action@v3.0.1

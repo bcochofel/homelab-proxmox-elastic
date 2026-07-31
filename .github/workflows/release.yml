@@ -1,0 +1,44 @@
+---
+# Runs semantic-release on every push to main. Config lives in .releaserc.js
+# (conventional-commits analyzer -> CHANGELOG.md -> GitHub Release -> git tag).
+# .releaserc.js also allows release/*, feature/*, and fix/* branches to cut
+# prereleases, but this workflow deliberately only triggers on main for now —
+# this repo's feature/fix branches are short-lived and deleted right after
+# merge (see CONTRIBUTING.md), so a prerelease per push there would be mostly
+# noise. Widen the `branches:` list here if that's ever wanted.
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 20
+
+      - name: Install release dependencies
+        run: npm ci
+
+      - name: Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx semantic-release
