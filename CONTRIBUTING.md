@@ -21,7 +21,13 @@ pre-commit git hooks (see below), and creates the Python virtualenv
 collections.
 
 Deliberately out of scope for `make install` — install these yourself via
-your OS package manager: `pre-commit`, `checkov`, `direnv`, `age`.
+your OS package manager: `pre-commit`, `checkov`, `direnv`, `age`. Markdown
+and Ansible linting don't need a separate install: `markdownlint-cli2` runs
+via pre-commit's own managed Node environment, and `ansible-lint` is pinned
+in `requirements.txt` and installed into `.venv/` by `make ansible-install`
+(part of `make install`). Ubuntu's `markdownlint` apt package is unrelated —
+it installs the Ruby `mdl` gem, a different tool with an incompatible
+config format; don't install it for this repo.
 
 Run `make help` to see every available target; `make debug` shows what's
 currently installed and detected.
@@ -60,6 +66,12 @@ What runs:
   generated table in sync), TFLint, Trivy, and Checkov, using the configs at
   the repo root (`.tflint.hcl`, `.trivy.yaml`, `.trivyignore`,
   `checkov.yaml`).
+- **Markdown** (all `*.md` files) — `markdownlint-cli2`, using
+  `.markdownlint.yaml` at the repo root (`terraform/.markdownlint.yaml`
+  layers an override for terraform-docs-generated README content).
+- **Ansible** (files under `ansible/`) — `ansible-lint`, run from `ansible/`
+  through the project's own `.venv/` so it picks up `ansible.cfg` and
+  `ansible/.ansible-lint`, not an isolated pre-commit-managed environment.
 - **Commit messages** — commitlint, at the `commit-msg` stage, checking
   against Conventional Commits (see below).
 

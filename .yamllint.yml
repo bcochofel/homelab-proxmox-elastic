@@ -38,7 +38,7 @@ rules:
 ignore: |
   .git/
   .github/
-  venv/
+  .venv/
   .cache/
   .tox/
   node_modules/
