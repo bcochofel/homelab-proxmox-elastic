@@ -8,10 +8,17 @@
 # GitHub-hosted one.
 name: CI
 
+# pull_request only — deliberately NOT push: branches: [main] too. The
+# no-commit-to-branch pre-commit hook checks the currently-checked-out
+# branch and fails whenever it's main/master; that's correct for its
+# actual job (stopping an accidental local commit straight to main) but
+# makes it structurally impossible to pass if this workflow also runs
+# against main itself post-merge — confirmed empirically: it failed on
+# every single merge to main once branch protection started routing
+# things through PRs. PR validation is already complete via pull_request;
+# there's nothing this trigger added that wasn't already checked pre-merge.
 on:
   pull_request:
-  push:
-    branches: [main]
 
 jobs:
   pre-commit:
