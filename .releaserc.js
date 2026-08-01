@@ -25,7 +25,7 @@ module.exports = {
       "@semantic-release/changelog",
       {
         "changelogFile": "CHANGELOG.md",
-        "changelogTitle": "# 📦 Changelog\n\nAll notable changes to this infrastructure project will be documented here.\n"
+        "changelogTitle": "# 📦 Changelog\n\nAll notable changes to this infrastructure project will be documented here."
       }
     ],
     "@semantic-release/github",
