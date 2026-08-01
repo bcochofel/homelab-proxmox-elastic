@@ -48,6 +48,7 @@
     group: root
     mode: "0600"
   become: true
+  no_log: "{{ es_security_enabled | bool }}"
   notify: Restart elastic-agent
 
 - name: Enable and start Elastic Agent

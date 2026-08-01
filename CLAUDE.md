@@ -88,8 +88,13 @@ reserved for this cluster — additional nodes take the next free IP in range
   `elastic_base_dir` means rebuilding the template; `elastic_base_dir` also
   has to stay in sync with `ansible/inventory/group_vars/all.yml`'s copy, since Ansible
   still needs that path to know where to render compose files.
-- **Security is OFF for now** (`es_security_enabled: false`). Adding TLS/auth is
-  a planned later exercise (local CA via `elasticsearch-certutil`, run-once play).
+- **Security is ON** (`es_security_enabled: true`, Phase 2 complete). ES
+  transport + HTTP TLS via a local CA (`es_certs` role), `elastic`/
+  `kibana_system` credentials, and API keys for APM Server/Elastic Agent
+  (`es_security_bootstrap` role) — see "Security sequencing" and
+  `docs/ANSIBLE.md`'s "TLS + auth" section for the mechanics, live-cutover
+  procedure, and the real bugs that surfaced only by running it live (not
+  from inspection).
 - **`packer/` holds one subdirectory per OS template** (`ubuntu-24.04/`,
   `ubuntu-26.04/`). Each is self-contained: its own `*.pkr.hcl` +
   `README.md` with build steps/ADRs. `packer/README.md` itself stays
@@ -330,17 +335,21 @@ don't correspond to them.
    `list_indices`, shard allocation. Design it after operating the cluster, so
    the tools reflect real use.
 
-## Security sequencing (deferred, but planned)
+## Security sequencing
 
-`xpack.security` + TLS are off to reach a green cluster fast. **Fleet enrollment
-creates a hard dependency on security being enabled** — plan that transition
-deliberately before Fleet becomes viable. When TLS lands, the bootstrap password
-and `elastic-certificates.p12` go into SOPS (the pattern is already in place).
-Fleet Server then deploys on the Kibana VM, and the standalone Elastic Agents
-already running on all six VMs (installed in phase 1) get re-enrolled as
-Fleet-managed — that migration, and switching APM ingestion from the
-self-managed APM Server to the Fleet-managed APM integration, are both part
-of this same later phase, not phase 1. See [`TODO.md`](TODO.md) for current
+`xpack.security` + TLS are on (Phase 2, complete) — that was the hard
+prerequisite **Fleet enrollment** needed, since Fleet Server requires a
+secured cluster to enroll agents against. Fleet Server itself is not
+deployed yet (Phase 3, next up): it deploys on the Kibana VM, and the
+standalone Elastic Agents already running on all six VMs (installed in
+Phase 1) get re-enrolled as Fleet-managed — that migration, and switching
+APM ingestion from the self-managed APM Server to the Fleet-managed APM
+integration, are both part of that phase. Note the bootstrap password and
+generated CA/node cert did **not** end up going into SOPS the way this
+section originally planned — see `docs/ANSIBLE.md`'s "TLS + auth" section
+for the actual design (only the two human-chosen passwords are in
+`secrets.yaml`; certs and minted API keys are generated material, cached
+outside git instead) and why. See [`TODO.md`](TODO.md) for current
 phase status and what comes after (OSQuery, Proxmox-host telemetry, Trivy
 CVE scanning into Elasticsearch, eventual SIEM).
 
@@ -446,6 +455,11 @@ cd ansible && ../.venv/bin/ansible-playbook playbooks/site.yml
    for what direnv-allow unlocks).
 2. Set in tfvars / HCP / env: `target_node` (MS-01 node name), `vm_template`
    (Packer template name), `TF_VAR_proxmox_api_token`, `TF_VAR_cipassword`.
+3. Set in `secrets.yaml`, exported from `ansible/.envrc`: `ELASTIC_PASSWORD`,
+   `KIBANA_SYSTEM_PASSWORD` — required since `es_security_enabled: true` is
+   the checked-in default (Phase 2). A preflight assert in the `common` role
+   fails loudly and early if either resolves empty; see `docs/ANSIBLE.md`'s
+   "TLS + auth" section.
 
 ## Open / deferred work
 

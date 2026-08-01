@@ -78,8 +78,10 @@ sops -d secrets.yaml
 
 **How `direnv` uses it:** each directory's `.envrc` runs something like
 `sops -d --output-type dotenv secrets.yaml` and exports the result as
-environment variables (`PKR_VAR_*` for Packer, `TF_VAR_*` for Terraform) —
-see the specific `.envrc` in each directory for the exact keys it maps.
+environment variables (`PKR_VAR_*` for Packer, `TF_VAR_*` for Terraform,
+plain names like `ELASTIC_PASSWORD`/`KIBANA_SYSTEM_PASSWORD` for Ansible,
+which has no built-in `X_VAR_*` convention of its own) — see the specific
+`.envrc` in each directory for the exact keys it maps.
 Once `secrets.yaml` exists and your age key can decrypt it, `direnv allow`
 (via `make install`) is all that's needed for those variables to appear
 automatically when you `cd` into `packer/`, `terraform/`, etc.
@@ -170,7 +172,18 @@ ansible-playbook playbooks/site.yml -e es_bootstrap_cluster=true
 Confirm `_cluster/health` reaches green, then re-run **without** the
 override — the checked-in `false` is already correct for steady state, so
 there's nothing to revert. See [`docs/ANSIBLE.md`](docs/ANSIBLE.md)'s
-Bootstrap lifecycle section for the full explanation.
+Bootstrap lifecycle section for the full explanation. Note this is a
+different flag from `security_rollout` (below) — a from-scratch bootstrap
+needs `es_bootstrap_cluster=true` and does **not** need
+`security_rollout=true`, since every node comes up already secured from its
+first-ever start (no mixed-security window to protect against — that flag
+matters only for flipping security on an already-live cluster).
+
+**Security is on by default** (`es_security_enabled: true`), so a
+from-scratch run also needs `ELASTIC_PASSWORD` and `KIBANA_SYSTEM_PASSWORD`
+set in `secrets.yaml` and exported from `ansible/.envrc` first — a preflight
+check fails loudly and early if either is missing. See
+[`docs/ANSIBLE.md`](docs/ANSIBLE.md)'s "TLS + auth" section.
 
 Once done, see [Verify](#verify) below.
 
@@ -208,16 +221,23 @@ metrics/logs.
 
 ## Verify
 
-- Kibana: `http://192.168.68.33:5601`
-- Elasticsearch: `http://192.168.68.30:9200`
-- APM Server: `http://192.168.68.34:8200`
+- Kibana: `https://192.168.68.33:5601`
+- Elasticsearch: `https://192.168.68.30:9200`
+- APM Server: `http://192.168.68.34:8200` (not TLS-fronted itself; only its
+  own connection *to* Elasticsearch is)
 - OTel demo frontend: `http://192.168.68.35:8080`
+
+Elasticsearch and Kibana present a self-signed cert from this cluster's own
+CA (`ansible/.certs/ca.crt` on the machine that ran the Ansible rollout,
+not committed to git) — expect a browser warning, or pass `--cacert
+ansible/.certs/ca.crt` (or `-k` to skip verification) with `curl`.
 
 ## Exploring the data in Kibana
 
-No login — `xpack.security` is off (see below). Once the cluster is green,
-the OTel demo's `load-generator` keeps producing live traffic continuously,
-so there's always fresh data to look at.
+Login as `elastic` — password is `ELASTIC_PASSWORD` in `secrets.yaml`
+(SOPS-encrypted; decrypt with your own age key, or ask whoever holds it).
+Once the cluster is green, the OTel demo's `load-generator` keeps producing
+live traffic continuously, so there's always fresh data to look at.
 
 Elastic reshuffles Kibana's left nav across versions and even lets each
 space pick "classic" vs. a solution-specific view — this project has
@@ -264,15 +284,18 @@ sometimes does.
   `/opt/elastic` base directory are baked into the Packer template via
   cloud-init. Ansible's `common` role only runs preflight checks — it never
   configures the OS.
-- **Security:** `xpack.security.enabled: false` for now. Flip `es_security_enabled`
-  in `inventory/group_vars/all.yml` to true later as a TLS/auth exercise.
+- **Security:** `xpack.security.enabled: true` — ES transport + HTTP TLS via
+  a local CA, `elastic`/`kibana_system` credentials, API keys for APM
+  Server and Elastic Agent. Toggled by `es_security_enabled` in
+  `inventory/group_vars/all.yml`; see `docs/ANSIBLE.md` for the cert
+  generation/rollout mechanics.
 - **Decoupling:** Terraform and Ansible are run as separate, explicit
   commands — no `local-exec` chaining, and no Makefile wrapper around
   either write step, so the one command that actually changes
   infrastructure always stays visible and explicit.
 - **Elastic Agent:** standalone (deb package + Ansible-rendered config) on
   every VM for OS + Docker metrics/logs, not Fleet-managed — Fleet Server
-  needs TLS to enroll against, and TLS is deferred (see below).
+  itself isn't deployed yet (TLS, its prerequisite, now is).
 - **APM Server:** its own VM/compose stack, self-managed — same reason as
   Elastic Agent. Both migrate to Fleet-managed mode once Fleet Server is up.
 - **No Logstash:** decided against entirely, not deferred. Ingest goes

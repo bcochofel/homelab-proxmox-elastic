@@ -11,6 +11,9 @@ services:
     command: ["--strict.perms=false", "-e"]
     volumes:
       - ./apm-server.yml:/usr/share/apm-server/apm-server.yml:ro
+{% if es_security_enabled | bool %}
+      - {{ es_shared_certs_dir }}:/usr/share/apm-server/certs:ro
+{% endif %}
     ports:
       - "${APM_SERVER_PORT}:8200"
     # No curl (or wget/nc) in this image — verified empirically, unlike the

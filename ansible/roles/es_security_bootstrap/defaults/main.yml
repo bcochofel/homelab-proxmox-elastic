@@ -1,0 +1,38 @@
+---
+# defaults file for es_security_bootstrap
+#
+# Role descriptors for API keys minted against a secured cluster. Sourced
+# from current elastic.co docs (verified 2026-08, stack 9.4.2) rather than
+# guessed from memory, per CLAUDE.md's standing rule on Elastic Stack specifics:
+#   - APM Server: https://www.elastic.co/docs/solutions/observability/apm/grant-access-using-api-keys
+#   - Standalone Elastic Agent: https://www.elastic.co/docs/reference/fleet/grant-access-to-elasticsearch
+# Re-check both before bumping stack_version across a major/minor boundary.
+
+es_apm_api_key_role_descriptors:
+  apm_writer:
+    cluster: ["monitor"]
+    index:
+      - names: ["traces-apm*", "logs-apm*", "metrics-apm*"]
+        privileges: ["auto_configure", "create_doc"]
+  apm_sourcemap:
+    index:
+      - names: [".apm-source-map"]
+        privileges: ["read"]
+  apm_agentcfg:
+    index:
+      - names: [".apm-agent-configuration"]
+        privileges: ["read"]
+        allow_restricted_indices: true
+  apm_tail_based_sampling:
+    index:
+      - names: ["traces-apm.sampled"]
+        privileges: ["read"]
+
+# Shared across all six standalone Elastic Agents — a deliberate homelab-
+# scope simplification (one key, not one per host); see docs/ANSIBLE.md.
+es_agent_api_key_role_descriptors:
+  standalone_agent:
+    cluster: ["monitor"]
+    indices:
+      - names: ["logs-*-*", "metrics-*-*", "traces-*-*", "synthetics-*-*"]
+        privileges: ["auto_configure", "create_doc"]

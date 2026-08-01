@@ -49,9 +49,43 @@ Roughly in dependency order — later phases build on earlier ones.
 
 ## Phase 2 — TLS + auth
 
-- [ ] Local CA via `elasticsearch-certutil`, run-once Ansible play
-- [ ] `xpack.security.enabled: true`; bootstrap password + certs into
-      `secrets.yaml` (SOPS)
+- [x] Local CA via `elasticsearch-certutil` — `es_certs` role
+      (`playbooks/05-elasticsearch-certs.yml`), PEM-based, distributes to
+      all six VMs. Certs are cached controller-locally
+      (`ansible/.certs/`, gitignored) rather than round-tripped through
+      `secrets.yaml` — see docs/ANSIBLE.md's "TLS + auth" section for why
+- [x] `xpack.security.enabled` wired end to end (ES transport+HTTP TLS,
+      `kibana_system` password, APM Server/Elastic Agent API keys via
+      `es_security_bootstrap` role) behind the single `es_security_enabled`
+      flag — `ELASTIC_PASSWORD`/`KIBANA_SYSTEM_PASSWORD` go into
+      `secrets.yaml` (SOPS) as designed; API keys are minted, not
+      human-chosen, so they're cached in `ansible/.secrets-cache/`
+      (gitignored) instead
+- [x] Live cutover completed 2026-08-01 via the one-shot
+      `-e es_security_enabled=true -e security_rollout=true` procedure —
+      cluster reached green (3/3 nodes) with security on, Kibana/APM
+      Server/OTel demo all passed `99-healthcheck.yml`, `es_security_enabled`
+      is now `true` in the checked-in `all.yml`. Several real bugs surfaced
+      only by running it live, not from inspection (see docs/ANSIBLE.md's
+      "TLS + auth" section and the `es_certs`/`elasticsearch` role comments
+      for the full incident notes):
+  - `ELASTIC_PASSWORD_FILE` crash-loops ES if the file's mode is looser
+    than 640 (had 644)
+  - a one-off CA/node-cert mismatch, root cause never fully pinned down —
+    a hard `openssl verify` check was added right after generation to
+    catch this at generation time instead of three plays later as an
+    opaque TLS handshake error
+  - `es_certs`'s original design generated certs via `docker exec` into
+    the live `elasticsearch` service container — worked for this cutover
+    (an existing, already-running container from Phase 1) but would have
+    broken a from-scratch bootstrap outright, since no `elasticsearch`
+    container exists yet at that point in `site.yml`. Caught by review
+    before it could bite a real fresh stand-up, not by hitting it live.
+    Redesigned around a one-off `docker run --rm` against the pinned
+    `es_image` instead, which also happens to structurally rule out the
+    CA/node-cert mismatch above (both certutil invocations now share one
+    bind-mounted directory — no more copying the CA in and out of a
+    container)
 - [ ] Re-evaluate `elastic/opentelemetry-demo` (EDOT fork) for the `otel_demo`
       VM once `xpack.security` is on — its EDOT/native-ES-OTLP-ingest modes
       need an API key our currently-unsecured cluster can't issue; a

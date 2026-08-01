@@ -26,3 +26,14 @@
   register: _compose_check
   changed_when: false
   failed_when: _compose_check.rc != 0
+
+- name: Verify security passwords are available (Phase 2 preflight)
+  ansible.builtin.assert:
+    that:
+      - es_elastic_password | length > 0
+      - kibana_system_password | length > 0
+    fail_msg: >-
+      es_security_enabled is true but ELASTIC_PASSWORD/KIBANA_SYSTEM_PASSWORD
+      resolved empty. Add them to secrets.yaml, export from ansible/.envrc,
+      then `direnv allow ansible` — see docs/ANSIBLE.md.
+  when: es_security_enabled | bool

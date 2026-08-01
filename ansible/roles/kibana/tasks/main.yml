@@ -28,6 +28,7 @@
     group: "{{ ansible_user }}"
     mode: "0640"
   become: true
+  no_log: "{{ es_security_enabled | bool }}"
   notify: Restart kibana
 
 - name: Bring up Kibana

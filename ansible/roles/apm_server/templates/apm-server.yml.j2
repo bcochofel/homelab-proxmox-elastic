@@ -9,8 +9,14 @@ apm-server:
 output.elasticsearch:
   hosts:
 {% for node in groups['elasticsearch'] %}
-    - "{{ hostvars[node].ansible_host }}:{{ es_http_port }}"
+    - "{{ 'https' if (es_security_enabled | bool) else 'http' }}://{{ hostvars[node].ansible_host }}:{{ es_http_port }}"
 {% endfor %}
+{% if es_security_enabled | bool %}
+  ssl.certificate_authorities: ["/usr/share/apm-server/certs/ca.crt"]
+  # id:api_key, minted once by the es_security_bootstrap role (see
+  # playbooks/15-elasticsearch-security.yml) — not the elastic superuser.
+  api_key: "{{ lookup('file', es_secrets_local_cache_dir ~ '/apm_api_key.txt') }}"
+{% endif %}
 
 logging:
   level: info

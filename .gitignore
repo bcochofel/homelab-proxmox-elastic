@@ -51,10 +51,17 @@ secrets/
 *.key
 *.pem
 *.cert
+*.crt
 *.p12
 *.pfx
 .env
 .env.local
+
+# Phase 2 (TLS+auth): generated CA/node certs and minted API keys, cached
+# locally by the es_certs / es_security_bootstrap roles — never committed,
+# see docs/ANSIBLE.md.
+ansible/.certs/
+ansible/.secrets-cache/
 
 # Ansible
 *.retry
