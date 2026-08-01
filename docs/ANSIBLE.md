@@ -84,15 +84,21 @@ playbook run.
 ## Bootstrap lifecycle
 
 `es_bootstrap_cluster: true` emits `cluster.initial_master_nodes` for first
-formation. Once green, set it to `false` in
-`inventory/group_vars/elasticsearch.yml` and re-run for safe steady-state
-config.
+formation.
 
 **The checked-in value is `false`** — it tracks this homelab's own
 already-bootstrapped cluster, not a template for a fresh one. Standing up a
-brand-new cluster (empty ES data volumes, no prior cluster state) means
-flipping it to `true` first, running once, confirming `_cluster/health`
-reaches green, then flipping it back to `false` and re-running. Running
-with `false` against data volumes that have never formed a cluster will
-not bootstrap it — there's no in-role check that catches this, since the
-role has no way to distinguish "steady state" from "never bootstrapped."
+brand-new cluster (empty ES data volumes, no prior cluster state) needs it
+`true` for exactly one run. **Override it on the CLI rather than editing the
+checked-in file:**
+
+```bash
+ansible-playbook playbooks/site.yml -e es_bootstrap_cluster=true
+```
+
+Confirm `_cluster/health` reaches green, then re-run **without** the
+override — the checked-in `false` is already correct for steady state, so
+there's nothing to revert. Running with `false` against data volumes that
+have never formed a cluster will not bootstrap it — there's no in-role check
+that catches this, since the role has no way to distinguish "steady state"
+from "never bootstrapped."

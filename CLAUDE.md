@@ -2,12 +2,14 @@
 
 Project context for Claude Code sessions — **not for humans**: never link or
 reference this file from `README.md`, `CONTRIBUTING.md`, `TODO.md`, or
-anything under `docs/`. A human contributor's path is root `README.md` ->
+anything under `docs/`. A human contributor's path is root `README.md`
+(which holds the Quickstart section end-to-end, deliberately not split into
+its own doc, so a reader lands on the run-it steps without an extra hop) ->
 `docs/*.md` -> `CONTRIBUTING.md`, with `TODO.md` as the standing
-phase-status tracker alongside them. The per-tool READMEs (`packer/README.md`,
-`terraform/README.md`, `ansible/README.md`) are deliberately just one-line
-pointers to their `docs/<TOOL>.md` — details live in `docs/PACKER.md`,
-`docs/TERRAFORM.md`, `docs/ANSIBLE.md`, `docs/QUICKSTART.md`, and
+phase-status tracker alongside them. The per-tool READMEs
+(`packer/README.md`, `terraform/README.md`, `ansible/README.md`) are
+deliberately just one-line pointers to their `docs/<TOOL>.md` — details live
+in `docs/PACKER.md`, `docs/TERRAFORM.md`, `docs/ANSIBLE.md`, and
 `CONTRIBUTING.md` (branching, commits, versioning, pre-commit), all of
 which now exist. `packer/<template>/README.md` (e.g.
 `packer/ubuntu-26.04/README.md`) is the one exception that holds real
