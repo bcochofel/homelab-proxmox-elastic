@@ -1,8 +1,8 @@
 # Contributing
 
 Thanks for working on this repo. Start with [`README.md`](README.md) for
-what this project is, and [`docs/QUICKSTART.md`](docs/QUICKSTART.md) to get
-a cluster running end to end. This doc covers the contributor workflow:
+what this project is and its Quickstart section to get a cluster running
+end to end. This doc covers the contributor workflow:
 environment setup, branching, commit conventions, versioning, and the
 shift-left checks that run before code lands.
 

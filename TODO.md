@@ -52,6 +52,12 @@ Roughly in dependency order — later phases build on earlier ones.
 - [ ] Local CA via `elasticsearch-certutil`, run-once Ansible play
 - [ ] `xpack.security.enabled: true`; bootstrap password + certs into
       `secrets.yaml` (SOPS)
+- [ ] Re-evaluate `elastic/opentelemetry-demo` (EDOT fork) for the `otel_demo`
+      VM once `xpack.security` is on — its EDOT/native-ES-OTLP-ingest modes
+      need an API key our currently-unsecured cluster can't issue; a
+      parallel VM (next free IP, `.36`) is the low-risk way to trial it
+      against the self-managed APM Server without touching the working
+      upstream-demo role
 
 ## Phase 3 — Fleet
 
