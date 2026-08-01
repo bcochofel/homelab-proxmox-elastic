@@ -190,19 +190,17 @@ Roughly in dependency order — later phases build on earlier ones.
       cloned disk, never shrink it, which is itself a good reason to
       revisit this once there's real experience running the current
       single-disk template rather than guessing at split sizing upfront.
-- [ ] Every VM is stuck on UTC regardless of the `timezone` Packer variable
+- [x] Every VM was stuck on UTC regardless of the `timezone` Packer variable
       (defaults to `Europe/Lisbon`) — not an NTP sync problem, confirmed:
       `packer/ubuntu-26.04/http/user-data.yml.tpl`'s autoinstall
-      `timezone: ${timezone}` gets applied, then a `runcmd` line
-      unconditionally runs `timedatectl set-timezone UTC` right after,
-      silently overriding it back to UTC every boot. Harmless for the
-      cluster itself (everything internally uses UTC consistently — logs,
-      ES timestamps, cron), but confusing operationally: Lisbon is UTC+1
-      in summer (WEST daylight saving), so wall-clock comparisons are
-      consistently off by an hour. Fix is either dropping that `runcmd`
-      line (let the `timezone` variable actually take effect) or removing
-      the variable and its cloud-init field entirely and documenting UTC
-      as the deliberate choice — pick one, since right now it's neither.
+      `timezone: ${timezone}` was applied, then a `runcmd` line
+      unconditionally ran `timedatectl set-timezone UTC` right after,
+      silently overriding it back to UTC every boot. Fixed by dropping that
+      `runcmd` line — `timezone: ${timezone}` now takes effect on its own.
+      Everything internally still normalizes to UTC regardless (logs, ES
+      timestamps, cron), so this is a wall-clock-only change. Needs the
+      template rebuilt to take effect on new VMs — not yet verified on a
+      live build (`TODO.md`'s next from-scratch bootstrap covers that).
 
 See `CLAUDE.md` for the detailed technical notes, gotchas, and ADRs behind
 each of these (agent-facing context) — this file is just the status list.
