@@ -368,9 +368,6 @@ autoinstall:
       # Restart SSH to apply changes
       - systemctl restart sshd
 
-      # Set timezone
-      - timedatectl set-timezone UTC
-
       # Enable NTP
       - timedatectl set-ntp true
 

@@ -221,16 +221,19 @@ metrics/logs.
 
 ## Verify
 
-- Kibana: `https://192.168.68.33:5601`
+- Kibana: `http://192.168.68.33:5601` (not TLS-fronted itself — Phase 2 only
+  covers the ES layer and Kibana's own *backend* connection to it; Kibana's
+  browser-facing listener staying plain HTTP was a deliberate scope
+  boundary, see `docs/ANSIBLE.md`'s "TLS + auth" section)
 - Elasticsearch: `https://192.168.68.30:9200`
-- APM Server: `http://192.168.68.34:8200` (not TLS-fronted itself; only its
-  own connection *to* Elasticsearch is)
+- APM Server: `http://192.168.68.34:8200` (same as Kibana — not TLS-fronted
+  itself; only its own connection *to* Elasticsearch is)
 - OTel demo frontend: `http://192.168.68.35:8080`
 
-Elasticsearch and Kibana present a self-signed cert from this cluster's own
-CA (`ansible/.certs/ca.crt` on the machine that ran the Ansible rollout,
-not committed to git) — expect a browser warning, or pass `--cacert
-ansible/.certs/ca.crt` (or `-k` to skip verification) with `curl`.
+Elasticsearch presents a self-signed cert from this cluster's own CA
+(`ansible/.certs/ca.crt` on the machine that ran the Ansible rollout, not
+committed to git) — expect a browser/`curl` warning if you hit ES directly,
+or pass `--cacert ansible/.certs/ca.crt` (or `-k` to skip verification).
 
 ## Exploring the data in Kibana
 
