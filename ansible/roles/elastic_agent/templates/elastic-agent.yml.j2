@@ -6,11 +6,17 @@ outputs:
     type: elasticsearch
     hosts:
 {% for node in groups['elasticsearch'] %}
-      - "{{ hostvars[node].ansible_host }}:{{ es_http_port }}"
+      - "{{ 'https' if (es_security_enabled | bool) else 'http' }}://{{ hostvars[node].ansible_host }}:{{ es_http_port }}"
 {% endfor %}
-{% if es_security_enabled %}
-    # es_security_enabled is true but no credentials are configured here yet —
-    # this needs an api_key or username/password once Phase 2 (TLS/auth) lands.
+{% if es_security_enabled | bool %}
+    ssl:
+      certificate_authorities:
+        - {{ es_shared_certs_dir }}/ca.crt
+    # id:api_key, shared across all six standalone agents — minted once by
+    # es_security_bootstrap (see playbooks/15-elasticsearch-security.yml).
+    # Homelab-scope simplification: one key, not one per host; see
+    # docs/ANSIBLE.md.
+    api_key: "{{ lookup('file', es_secrets_local_cache_dir ~ '/agent_api_key.txt') }}"
 {% endif %}
 
 inputs:

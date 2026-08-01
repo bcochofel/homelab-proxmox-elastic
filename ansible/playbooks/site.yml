@@ -2,8 +2,12 @@
 # Full provision. Run after `terraform apply` has generated inventory/hosts.ini.
 - name: Bootstrap
   import_playbook: 00-bootstrap.yml
+- name: TLS certificates
+  import_playbook: 05-elasticsearch-certs.yml
 - name: Elasticsearch
   import_playbook: 10-elasticsearch.yml
+- name: Elasticsearch security bootstrap
+  import_playbook: 15-elasticsearch-security.yml
 - name: Kibana
   import_playbook: 20-kibana.yml
 - name: APM Server

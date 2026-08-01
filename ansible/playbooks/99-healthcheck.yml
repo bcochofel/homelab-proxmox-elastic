@@ -5,7 +5,10 @@
   tasks:
     - name: Wait for cluster health to be green
       ansible.builtin.uri:
-        url: "http://127.0.0.1:{{ es_http_port }}/_cluster/health"
+        url: "{{ 'https' if (es_security_enabled | bool) else 'http' }}://127.0.0.1:{{ es_http_port }}/_cluster/health"
+        user: "{{ 'elastic' if (es_security_enabled | bool) else omit }}"
+        password: "{{ es_elastic_password if (es_security_enabled | bool) else omit }}"
+        ca_path: "{{ (elastic_base_dir ~ '/elasticsearch/certs/ca.crt') if (es_security_enabled | bool) else omit }}"
         return_content: true
       register: _health
       until: >

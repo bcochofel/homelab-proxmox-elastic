@@ -13,13 +13,29 @@ services:
       - network.host=0.0.0.0
       - network.publish_host=${PUBLISH_HOST}
       - discovery.seed_hosts=${SEED_HOSTS}
-{% if es_bootstrap_cluster %}
+{% if es_bootstrap_cluster | bool %}
       - cluster.initial_master_nodes=${INITIAL_MASTER_NODES}
 {% endif %}
       - node.roles=master,data,ingest
       - bootstrap.memory_lock=${MEMORY_LOCK}
       - ES_JAVA_OPTS=-Xms${HEAP_SIZE} -Xmx${HEAP_SIZE}
       - xpack.security.enabled=${SECURITY_ENABLED}
+{% if es_security_enabled | bool %}
+      # Certs come from the es_certs role (PEM, not p12/keystore — see that
+      # role's tasks for why). ELASTIC_PASSWORD_FILE (not the raw env var)
+      # avoids the password leaking via `docker inspect`/`docker ps`.
+      - xpack.security.transport.ssl.enabled=true
+      - xpack.security.transport.ssl.verification_mode=certificate
+      - xpack.security.transport.ssl.client_authentication=required
+      - xpack.security.transport.ssl.certificate=certs/node.crt
+      - xpack.security.transport.ssl.key=certs/node.key
+      - xpack.security.transport.ssl.certificate_authorities=certs/ca.crt
+      - xpack.security.http.ssl.enabled=true
+      - xpack.security.http.ssl.certificate=certs/node.crt
+      - xpack.security.http.ssl.key=certs/node.key
+      - xpack.security.http.ssl.certificate_authorities=certs/ca.crt
+      - ELASTIC_PASSWORD_FILE=/run/secrets/elastic_password
+{% endif %}
     ulimits:
       memlock:
         soft: -1
@@ -29,11 +45,22 @@ services:
         hard: 65536
     volumes:
       - esdata:/usr/share/elasticsearch/data
+{% if es_security_enabled | bool %}
+      - ./certs:/usr/share/elasticsearch/config/certs
+      - ./secrets/elastic_password:/run/secrets/elastic_password:ro
+{% endif %}
     ports:
       - "${HTTP_PORT}:9200"
       - "${TRANSPORT_PORT}:9300"
     healthcheck:
+{% if es_security_enabled | bool %}
+      # -k: this is a loopback, in-container check, not a network trust
+      # boundary — cross-host verification (Kibana/APM/Agent) does validate
+      # against the CA properly, see those roles' config instead.
+      test: ["CMD-SHELL", "curl -fsS -k -u elastic:$(cat /run/secrets/elastic_password) https://localhost:9200/_cluster/health || exit 1"]
+{% else %}
       test: ["CMD-SHELL", "curl -fsS http://localhost:9200/_cluster/health || exit 1"]
+{% endif %}
       interval: 20s
       timeout: 10s
       retries: 12

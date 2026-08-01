@@ -11,6 +11,15 @@ services:
 {% if kibana_publicbaseurl | length > 0 %}
       - SERVER_PUBLICBASEURL=${PUBLIC_BASE_URL}
 {% endif %}
+{% if es_security_enabled | bool %}
+      - ELASTICSEARCH_USERNAME=${ELASTICSEARCH_USERNAME}
+      - ELASTICSEARCH_PASSWORD=${ELASTICSEARCH_PASSWORD}
+      - ELASTICSEARCH_SSL_CERTIFICATEAUTHORITIES=${ELASTICSEARCH_SSL_CERTIFICATEAUTHORITIES}
+{% endif %}
+{% if es_security_enabled | bool %}
+    volumes:
+      - {{ es_shared_certs_dir }}:/usr/share/kibana/config/certs:ro
+{% endif %}
     ports:
       - "${KIBANA_PORT}:5601"
     healthcheck:

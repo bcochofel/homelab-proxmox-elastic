@@ -1,0 +1,10 @@
+---
+# Post-bootstrap security setup: only meaningful once xpack.security is on.
+# Skipped entirely otherwise, so this playbook is safe to leave in the
+# standard site.yml chain rather than being a manual one-off.
+- name: Elasticsearch security bootstrap (kibana_system password, output API keys)
+  hosts: elasticsearch[0]
+  gather_facts: false
+  roles:
+    - role: es_security_bootstrap
+      when: es_security_enabled | bool

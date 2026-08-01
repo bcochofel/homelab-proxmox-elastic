@@ -12,9 +12,13 @@ es_image: "docker.elastic.co/elasticsearch/elasticsearch:{{ stack_version }}"
 kibana_image: "docker.elastic.co/kibana/kibana:{{ stack_version }}"
 apm_server_image: "docker.elastic.co/apm/apm-server:{{ stack_version }}"
 
-# ---- Security: OFF for now (fastest path to green) ----
-# Flip to true later as a deliberate TLS/auth learning exercise.
-es_security_enabled: false
+# ---- Security: ON (Phase 2 complete) ----
+# Live cutover completed 2026-08-01 via the one-shot
+# `-e es_security_enabled=true -e security_rollout=true` procedure in
+# docs/ANSIBLE.md's "TLS + auth" section. Checked-in true is now the steady
+# state — the rollback path if ever needed is
+# `-e es_security_enabled=false -e security_rollout=true`, same doc.
+es_security_enabled: true
 
 # JVM heap per ES node. Keep <= 50% of the VM RAM and under ~31 GB.
 # VMs are 8 GB -> 4 GB heap.
@@ -22,6 +26,21 @@ es_heap_size: "4g"
 
 # Where compose projects live on each VM
 elastic_base_dir: /opt/elastic
+
+# Where the CA cert lives on every host once TLS is on (es_certs role
+# distributes it here; kibana/apm_server/elastic_agent roles read it from
+# here to trust ES's HTTP layer).
+es_shared_certs_dir: "{{ elastic_base_dir }}/certs"
+
+# Controller-local (not Terraform/hosts-generated) cache dirs for the
+# generated CA/node cert and minted API keys — kept outside git (see
+# .gitignore). Living here, not in a role's defaults/, is deliberate: these
+# are read across roles (es_certs writes certs, es_security_bootstrap writes
+# API keys, kibana/apm_server/elastic_agent read them back), same
+# cross-host-visibility reason apm_server_port lives here instead of
+# roles/apm_server/defaults/.
+es_certs_local_cache_dir: "{{ playbook_dir }}/../.certs"
+es_secrets_local_cache_dir: "{{ playbook_dir }}/../.secrets-cache"
 
 # Ports
 es_http_port: 9200
@@ -31,3 +50,20 @@ kibana_port: 5601
 # to point its OTLP exports at APM Server — must live here, not in
 # roles/apm_server/defaults/, since role defaults aren't visible cross-host.
 apm_server_port: 8200
+
+# ---- Passwords (Phase 2) ----
+# NOT certs/keys — those are generated and distributed by the es_certs role
+# instead (see docs/ANSIBLE.md). Sourced from secrets.yaml (SOPS + age) via
+# the existing direnv chain: add ELASTIC_PASSWORD / KIBANA_SYSTEM_PASSWORD to
+# secrets.yaml yourself (`sops secrets.yaml`), export them from
+# ansible/.envrc the same way terraform/.envrc exports TF_VAR_*, then
+# `direnv allow ansible` (or `make direnv-allow`). Resolves empty until
+# that's done — see the preflight assert in roles/common/tasks/asserts.yml,
+# gated on es_security_enabled.
+#
+# Deliberately kept in this file, not a separate group_vars/vault.yml: only
+# group_vars/<real-group-name>.yml (or all.yml, matching the implicit "all"
+# group) auto-loads in Ansible — a file named after neither, like a
+# standalone vault.yml, is silently never read. Confirmed the hard way.
+es_elastic_password: "{{ lookup('env', 'ELASTIC_PASSWORD') }}"
+kibana_system_password: "{{ lookup('env', 'KIBANA_SYSTEM_PASSWORD') }}"

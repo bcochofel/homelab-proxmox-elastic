@@ -16,8 +16,9 @@
     dest: "{{ elastic_base_dir }}/apm-server/apm-server.yml"
     owner: "{{ ansible_user }}"
     group: "{{ ansible_user }}"
-    mode: "0644"
+    mode: "0640"
   become: true
+  no_log: "{{ es_security_enabled | bool }}"
   notify: Restart apm-server
 
 - name: Render docker-compose.yml

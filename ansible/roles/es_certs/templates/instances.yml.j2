@@ -1,0 +1,16 @@
+# Managed by Ansible. Input to `elasticsearch-certutil cert` — one shared
+# certificate covering every ES node plus Kibana and APM Server (the two
+# HTTP-layer clients), so all three roles trust the same bundle instead of
+# distributing a cert per node.
+instances:
+  - name: "es-shared"
+    dns:
+{% for host in groups['elasticsearch'] + groups['kibana'] + groups['apm_server'] %}
+      - "{{ host }}"
+{% endfor %}
+      - "localhost"
+    ip:
+{% for host in groups['elasticsearch'] + groups['kibana'] + groups['apm_server'] %}
+      - "{{ hostvars[host].ansible_host }}"
+{% endfor %}
+      - "127.0.0.1"

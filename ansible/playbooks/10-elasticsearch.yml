@@ -2,7 +2,23 @@
 - name: Deploy Elasticsearch cluster
   hosts: elasticsearch
   gather_facts: true
-  # Roll one node at a time so quorum is preserved on re-runs/restarts.
-  serial: 1
+  # Roll one node at a time so quorum is preserved on re-runs/restarts —
+  # EXCEPT for the one-shot TLS/security cutover (-e security_rollout=true),
+  # where serial:1 is actively unsafe: a node restarted with transport TLS
+  # on can't complete a handshake with peers still running plaintext, so a
+  # one-at-a-time rollout leaves the cluster split for the whole window
+  # instead of just briefly degraded. That one operation restarts all three
+  # nodes together instead. See docs/ANSIBLE.md's TLS section.
+  serial: "{{ '100%' if (security_rollout | default(false) | bool) else 1 }}"
+  pre_tasks:
+    - name: Refuse to combine security_rollout with es_bootstrap_cluster
+      ansible.builtin.assert:
+        that: not (security_rollout | default(false) | bool and es_bootstrap_cluster | default(false) | bool)
+        fail_msg: >-
+          security_rollout=true and es_bootstrap_cluster=true were both set.
+          These are unrelated flags (initial_master_nodes vs. a security
+          flip on already-formed cluster state) — combining them on a live
+          cluster is almost certainly an operator error. Run them
+          separately.
   roles:
     - elasticsearch

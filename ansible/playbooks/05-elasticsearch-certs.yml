@@ -1,0 +1,12 @@
+---
+# Generates (once) and distributes the shared CA + ES node certificate used
+# once xpack.security/TLS is turned on (see docs/ANSIBLE.md's TLS section).
+# Runs unconditionally, ahead of security being enabled — cert files sitting
+# on disk are inert until the elasticsearch role's TLS block references
+# them, so it's safe to leave this in the standard site.yml chain rather
+# than treating it as a manual one-off.
+- name: Generate and distribute TLS certificates
+  hosts: all
+  gather_facts: true
+  roles:
+    - es_certs
