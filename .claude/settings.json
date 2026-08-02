@@ -1,24 +1,5 @@
 {
   "permissions": {
-    "deny": [
-      "Bash(sops -d *)",
-      "Bash(sops --decrypt *)",
-      "Bash(terraform destroy)",
-      "Bash(terraform destroy *)",
-      "Read(secrets.yaml)",
-      "Read(.envrc)",
-      "Read(**/.envrc)",
-      "Read(~/.config/sops/age/keys.txt)"
-    ],
-    "ask": [
-      "Bash(packer build)",
-      "Bash(packer build *)",
-      "Bash(terraform apply)",
-      "Bash(terraform apply *)",
-      "Bash(ansible-playbook *)",
-      "Bash(.venv/bin/ansible-playbook *)",
-      "Bash(../.venv/bin/ansible-playbook *)"
-    ],
     "allow": [
       "Bash(packer validate)",
       "Bash(packer validate *)",
@@ -28,7 +9,6 @@
       "Bash(packer fmt *)",
       "Bash(packer version)",
       "Bash(packer version *)",
-
       "Bash(terraform validate)",
       "Bash(terraform validate *)",
       "Bash(terraform fmt)",
@@ -50,7 +30,6 @@
       "Bash(terraform workspace list)",
       "Bash(terraform state list)",
       "Bash(terraform state show *)",
-
       "Bash(ansible-lint)",
       "Bash(ansible-lint *)",
       "Bash(ansible-inventory *)",
@@ -73,13 +52,11 @@
       "Bash(../.venv/bin/ansible-playbook playbooks/site.yml --syntax-check)",
       "Bash(../.venv/bin/ansible-playbook --check playbooks/site.yml)",
       "Bash(../.venv/bin/ansible-playbook --syntax-check playbooks/site.yml)",
-
       "Bash(pre-commit run)",
       "Bash(pre-commit run *)",
       "Bash(pre-commit install)",
       "Bash(pre-commit install *)",
       "Bash(pre-commit --version)",
-
       "Bash(git status)",
       "Bash(git status *)",
       "Bash(git diff)",
@@ -91,7 +68,6 @@
       "Bash(git branch)",
       "Bash(git branch *)",
       "Bash(git remote -v)",
-
       "Bash(make help)",
       "Bash(make help *)",
       "Bash(make debug)",
@@ -117,7 +93,36 @@
       "Bash(make ansible-install)",
       "Bash(make ansible-install *)",
       "Bash(make ansible-deps)",
-      "Bash(make ansible-deps *)"
+      "Bash(make ansible-deps *)",
+      "Bash(checkov -d *)",
+      "Bash(tflint *)",
+      "Bash(command -v *)",
+      "Bash(git fetch)",
+      "Bash(git fetch *)",
+      "Bash(trivy *)",
+      "Bash(claude mcp list)",
+      "Bash(rm -rf ansible/roles/apm_server)",
+      "Bash(rm -f ansible/playbooks/30-apm-server.yml)",
+      "Bash(timeout 60 npx --yes markdownlint-cli2 README.md CLAUDE.md TODO.md docs/ANSIBLE.md)"
+    ],
+    "deny": [
+      "Bash(sops -d *)",
+      "Bash(sops --decrypt *)",
+      "Bash(terraform destroy)",
+      "Bash(terraform destroy *)",
+      "Read(secrets.yaml)",
+      "Read(.envrc)",
+      "Read(**/.envrc)",
+      "Read(~/.config/sops/age/keys.txt)"
+    ],
+    "ask": [
+      "Bash(packer build)",
+      "Bash(packer build *)",
+      "Bash(terraform apply)",
+      "Bash(terraform apply *)",
+      "Bash(ansible-playbook *)",
+      "Bash(.venv/bin/ansible-playbook *)",
+      "Bash(../.venv/bin/ansible-playbook *)"
     ]
   }
 }
