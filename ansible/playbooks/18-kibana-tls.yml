@@ -1,0 +1,6 @@
+---
+- name: Kibana Let's Encrypt TLS
+  hosts: kibana
+  gather_facts: true
+  roles:
+    - kibana_tls

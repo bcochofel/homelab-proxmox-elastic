@@ -221,10 +221,11 @@ metrics/logs.
 
 ## Verify
 
-- Kibana: `http://192.168.68.33:5601` (not TLS-fronted itself — Phase 2 only
-  covers the ES layer and Kibana's own *backend* connection to it; Kibana's
-  browser-facing listener staying plain HTTP was a deliberate scope
-  boundary, see `docs/ANSIBLE.md`'s "TLS + auth" section)
+- Kibana: `https://kibana.homelab.bcochofel.com` — a real Let's Encrypt
+  certificate (DNS-01 via Cloudflare), not the cluster's own self-signed CA,
+  since this is the one endpoint humans hit in a browser. Port 5601 is no
+  longer published on the host — only 443 is. See `docs/ANSIBLE.md`'s
+  "Kibana TLS (Let's Encrypt)" section
 - Elasticsearch: `https://192.168.68.30:9200`
 - APM Server: `http://192.168.68.34:8200` (same as Kibana — not TLS-fronted
   itself; only its own connection *to* Elasticsearch is)

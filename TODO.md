@@ -92,6 +92,13 @@ Roughly in dependency order — later phases build on earlier ones.
       parallel VM (next free IP, `.36`) is the low-risk way to trial it
       against the self-managed APM Server without touching the working
       upstream-demo role
+- [x] Kibana's public URL (`kibana.homelab.bcochofel.com`) served with a
+      real Let's Encrypt certificate — separate from the internal
+      `es_certs` CA above, since it's the one endpoint humans hit in a
+      browser. `kibana_tls` role: `certbot` + `certbot-dns-cloudflare`,
+      DNS-01 (Kibana has no public port 80/443 for HTTP-01), certbot's own
+      systemd timer handles renewal. See docs/ANSIBLE.md's "Kibana TLS
+      (Let's Encrypt)" section
 
 ## Phase 3 — Fleet
 

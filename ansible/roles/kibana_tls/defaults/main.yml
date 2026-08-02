@@ -1,0 +1,7 @@
+---
+# defaults file for kibana_tls
+#
+# kibana_fqdn, kibana_tls_enabled, letsencrypt_email, and
+# cloudflare_api_token are cross-role shared vars — defined in
+# inventory/group_vars/kibana.yml, not here, since the kibana role also
+# reads kibana_fqdn/kibana_tls_enabled to render its SSL config.

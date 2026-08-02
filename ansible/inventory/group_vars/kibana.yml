@@ -1,4 +1,19 @@
 ---
 # Kibana role tuning (hand-authored).
 # Derives the ES endpoint list from the elasticsearch group at template time.
-kibana_publicbaseurl: ""  # set to http://<kibana-ip>:5601 if you want deep links correct
+
+# ---- Let's Encrypt TLS (kibana_tls role) ----
+# DNS-01 via Cloudflare — kibana_fqdn already resolves to this VM's IP via
+# the on-prem DNS server; the Cloudflare API token is only used to write
+# the _acme-challenge TXT record during issuance/renewal, independent of
+# where the A record itself is hosted. See docs/ANSIBLE.md.
+kibana_fqdn: kibana.homelab.bcochofel.com
+kibana_tls_enabled: true
+letsencrypt_email: bruno.cochofel@gmail.com
+cloudflare_api_token: "{{ lookup('env', 'CLOUDFLARE_API_TOKEN') }}"
+
+# Host-published port. 443 once TLS is on, for a clean https://kibana_fqdn
+# URL with no port suffix.
+kibana_port: 443
+
+kibana_publicbaseurl: "https://{{ kibana_fqdn }}"

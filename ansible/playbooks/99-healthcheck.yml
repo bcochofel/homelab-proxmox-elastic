@@ -31,7 +31,8 @@
   tasks:
     - name: Wait for Kibana API status
       ansible.builtin.uri:
-        url: "http://127.0.0.1:{{ kibana_port }}/api/status"
+        url: "{{ 'https' if (kibana_tls_enabled | default(false) | bool) else 'http' }}://127.0.0.1:{{ kibana_port }}/api/status"
+        validate_certs: "{{ not (kibana_tls_enabled | default(false) | bool) }}"
         return_content: true
       register: _kb
       until: _kb.status == 200

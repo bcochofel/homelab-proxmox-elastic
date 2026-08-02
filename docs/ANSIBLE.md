@@ -59,6 +59,25 @@ Roles:
   Minted keys are cached in `ansible/.secrets-cache/` (gitignored, shown
   once at creation) so re-running the playbook doesn't orphan a
   previously-minted key.
+- `kibana_tls` — Let's Encrypt certificate for Kibana's public URL
+  (`kibana_fqdn`, `inventory/group_vars/kibana.yml`), via `certbot` +
+  `certbot-dns-cloudflare` (DNS-01 — Kibana has no public port 80/443 to
+  answer an HTTP-01 challenge; the `_acme-challenge` TXT record lands in
+  Cloudflare regardless of where the A record itself is hosted, since
+  that's the zone `bcochofel.com` is delegated to). Runs as a host apt
+  package with certbot's own systemd renewal timer, not a container —
+  this is a recurring scheduled job (Trivy's shape, see ADR-7 in
+  `packer/ubuntu-26.04/README.md`), not a one-shot generate-once tool
+  invocation (`es_certs`'s shape) — and keeping it host-side means the
+  renewal deploy-hook can call `docker compose restart kibana` directly
+  with no Docker-socket-in-container privilege exposure. The deploy-hook
+  (registered at issuance time via `--deploy-hook`, persisted into
+  certbot's own renewal config for every future automatic renewal) copies
+  the renewed `fullchain.pem`/`privkey.pem` into
+  `{{ elastic_base_dir }}/kibana/certs/` and restarts the `kibana`
+  container so it picks up the new cert. Needs `CLOUDFLARE_API_TOKEN`
+  (Zone:DNS:Edit only, scoped to `bcochofel.com`) — see "TLS + auth"
+  below.
 
 ## TLS + auth (Phase 2)
 
@@ -111,6 +130,40 @@ share **one** API key rather than one per host. Least-privilege purism
 wasn't judged worth the added bookkeeping at this scale; revisit if that
 changes.
 
+## Kibana TLS (Let's Encrypt)
+
+Separate from the internal `es_certs` CA above — Kibana's own public URL
+(`kibana_fqdn`, default `kibana.homelab.bcochofel.com`) is served with a
+real Let's Encrypt certificate instead, since it's the one endpoint humans
+hit in a browser. `kibana_tls_enabled` (`inventory/group_vars/kibana.yml`)
+gates it; the `kibana` role's compose template only sets
+`SERVER_SSL_ENABLED`/`SERVER_SSL_CERTIFICATE`/`SERVER_SSL_KEY` and mounts
+`{{ elastic_base_dir }}/kibana/certs` when it's true, and `kibana_port`
+becomes `443` (still just the host-side published port, same var
+`99-healthcheck.yml` already uses) so the URL needs no port suffix.
+
+**Secrets.** `CLOUDFLARE_API_TOKEN` is the one secret this needs — a
+Cloudflare API token scoped to **Zone:DNS:Edit only** for the
+`bcochofel.com` zone (not the broader "Edit zone" template — this token
+only ever needs to create/delete the `_acme-challenge` TXT record).
+Same pattern as `ELASTIC_PASSWORD`: add it to `secrets.yaml`
+(`sops secrets.yaml`), export it from `ansible/.envrc`, then
+`direnv allow ansible`. A preflight assert in `common` (gated on
+`kibana_tls_enabled`) fails loudly if it resolves empty.
+
+DNS-01 was the only option here, not a preference — Kibana has no public
+port 80/443 exposure for HTTP-01. The ACME `_acme-challenge` TXT record
+still has to land in Cloudflare regardless of where the `kibana_fqdn` A
+record itself is hosted (this homelab's on-prem DNS server, in this case),
+since Cloudflare is the zone `bcochofel.com` is actually delegated to.
+
+Renewal is entirely certbot's own systemd timer (installed by the
+`certbot` apt package) — no separate cron entry. The `--deploy-hook` script
+passed at issuance time gets persisted into certbot's renewal config and
+re-run automatically on every future renewal, copying the new cert into
+`{{ elastic_base_dir }}/kibana/certs/` and restarting the `kibana`
+container.
+
 Playbooks (all under `playbooks/`, run via `site.yml`'s `import_playbook`
 chain):
 
@@ -121,6 +174,9 @@ chain):
 - `10-elasticsearch.yml` — ES cluster.
 - `15-elasticsearch-security.yml` — `kibana_system` password + API key
   minting (`es_security_bootstrap` role), only when `es_security_enabled`.
+- `18-kibana-tls.yml` — Kibana's Let's Encrypt certificate (`kibana_tls`
+  role), before Kibana itself since the container's compose file bind-mounts
+  the cert.
 - `20-kibana.yml` — Kibana.
 - `30-apm-server.yml` — APM Server.
 - `40-otel-demo.yml` — OTel demo.
@@ -128,8 +184,8 @@ chain):
 - `99-healthcheck.yml` — asserts cluster green with N nodes, Kibana up, APM
   Server up, and the OTel demo stack running.
 - `site.yml` — the full chain: bootstrap -> certs -> ES -> security
-  bootstrap -> Kibana -> APM Server -> OTel demo -> Elastic Agent (all
-  hosts) -> health.
+  bootstrap -> Kibana TLS -> Kibana -> APM Server -> OTel demo -> Elastic
+  Agent (all hosts) -> health.
 
 `ansible.cfg` sets `roles_path = roles` so role lookup works regardless of
 which playbook (or subdirectory) is invoked.

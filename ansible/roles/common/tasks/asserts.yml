@@ -37,3 +37,13 @@
       resolved empty. Add them to secrets.yaml, export from ansible/.envrc,
       then `direnv allow ansible` — see docs/ANSIBLE.md.
   when: es_security_enabled | bool
+
+- name: Verify Cloudflare API token is available (Kibana Let's Encrypt preflight)
+  ansible.builtin.assert:
+    that:
+      - cloudflare_api_token | length > 0
+    fail_msg: >-
+      kibana_tls_enabled is true but CLOUDFLARE_API_TOKEN resolved empty.
+      Add it to secrets.yaml, export from ansible/.envrc, then
+      `direnv allow ansible` — see docs/ANSIBLE.md.
+  when: "'kibana' in group_names and kibana_tls_enabled | default(false) | bool"

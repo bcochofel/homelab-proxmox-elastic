@@ -45,7 +45,9 @@ es_secrets_local_cache_dir: "{{ playbook_dir }}/../.secrets-cache"
 # Ports
 es_http_port: 9200
 es_transport_port: 9300
-kibana_port: 5601
+# kibana_port lives in group_vars/kibana.yml instead, alongside the rest of
+# Kibana's own tuning — unlike es_http_port/apm_server_port below, nothing
+# outside the kibana host itself needs to see it.
 # apm_server_port is also referenced by otel_demo's role (a different host)
 # to point its OTLP exports at APM Server — must live here, not in
 # roles/apm_server/defaults/, since role defaults aren't visible cross-host.

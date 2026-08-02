@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Managed by Ansible. Invoked by certbot on every successful issuance/
+# renewal (registered via --deploy-hook at `certbot certonly` time, and
+# persisted into /etc/letsencrypt/renewal/{{ kibana_fqdn }}.conf for every
+# future automatic renewal run by certbot's own systemd timer).
+#
+# $RENEWED_LINEAGE is set by certbot to the live cert directory
+# (/etc/letsencrypt/live/{{ kibana_fqdn }}) at hook execution time.
+set -euo pipefail
+
+install -o root -g root -m 0644 "$RENEWED_LINEAGE/fullchain.pem" "{{ elastic_base_dir }}/kibana/certs/fullchain.pem"
+install -o root -g root -m 0644 "$RENEWED_LINEAGE/privkey.pem" "{{ elastic_base_dir }}/kibana/certs/privkey.pem"
+
+docker compose -f "{{ elastic_base_dir }}/kibana/docker-compose.yml" restart kibana
