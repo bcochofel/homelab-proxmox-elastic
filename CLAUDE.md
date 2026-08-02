@@ -52,19 +52,24 @@ reserved for this cluster — additional nodes take the next free IP in range
   self-assembles. The generated inventory also carries `[kibana]`,
   `[apm_server]`, and `[otel_demo]` groups for the other three roles — one
   group per VM role, all derived the same way.
-- **Elastic Agent runs standalone, not Fleet-managed, on every VM** (deb
-  package pre-installed but disabled by Packer, then Ansible renders
-  `elastic-agent.yml` and enables/starts it — see ADR-8 in
-  `packer/ubuntu-26.04/README.md`), including the OTel demo VM. Fleet
-  Server is now up on the Kibana VM (Phase 3 step 1, `fleet_bootstrap`/
-  `fleet_server` roles — see "Security sequencing"), but migrating these
-  six agents to Fleet-managed mode is deliberately scoped as its own
-  follow-up change, not part of standing up Fleet Server itself. Don't
-  migrate them without a separate, explicit ask.
-- **APM Server is its own VM/compose stack, self-managed** (not the
-  Fleet-managed APM integration) — same reasoning as Elastic Agent:
-  migrating APM ingestion to the Fleet-managed integration is a separate
-  follow-up change, not part of standing up Fleet Server itself.
+- **Every Elastic Agent is Fleet-managed** (Phase 3 steps 2+3, complete).
+  The deb package is still pre-installed but disabled by Packer (ADR-8 in
+  `packer/ubuntu-26.04/README.md`); the `elastic_agent` role's job is now
+  enrollment (`elastic-agent enroll`, marker-file idempotent), not
+  rendering a standalone config — there's no standalone mode left, this
+  was a deliberate one-way migration (see git history for the old
+  standalone-config role if a rollback is ever needed). es-01/02/03,
+  kibana, and otel-demo share `homelab-agents-policy` (System + Docker
+  integrations, Fleet's own default inputs); apm-server has its own
+  `apm-server-agent-policy` (System + Docker + APM), since Fleet agents
+  belong to exactly one policy and the other five hosts must not run the
+  APM integration too.
+- **APM ingestion is the Fleet-managed APM integration**, not a
+  self-managed `apm-server` container — the standalone `apm_server` role
+  and its compose stack are gone. It runs as part of the apm-server host's
+  own (now Fleet-managed) Elastic Agent, same host:port (`apm_server_port`,
+  still `8200`) `otel_demo`'s OTLP export already targeted, so that role
+  needed no changes.
 - **No Logstash.** Decided against entirely, not deferred — ingest goes
   straight to Elasticsearch (via Elastic Agent output / ES ingest pipelines).
   Don't propose adding a Logstash role or VM.
@@ -340,16 +345,23 @@ don't correspond to them.
 
 `xpack.security` + TLS are on (Phase 2, complete) — that was the hard
 prerequisite **Fleet enrollment** needed, since Fleet Server requires a
-secured cluster to enroll agents against. Fleet Server itself is now
-deployed on the Kibana VM (Phase 3 step 1, complete — `fleet_bootstrap` +
+secured cluster to enroll agents against. Phase 3 is now complete end to
+end: Fleet Server is deployed on the Kibana VM (step 1 — `fleet_bootstrap` +
 `fleet_server` roles, `playbooks/35-fleet-server.yml`, gated on
-`fleet_server_enabled`). Its own TLS listener (port 8220) reuses the
-internal `es_certs` CA, not the Kibana Let's Encrypt cert, since every
-agent that'll eventually enroll already trusts that CA. Still open,
-deliberately scoped as separate follow-up changes: re-enrolling the
-standalone Elastic Agents already running on all six VMs (installed in
-Phase 1) as Fleet-managed, and switching APM ingestion from the
-self-managed APM Server to the Fleet-managed APM integration. Note the bootstrap password and
+`fleet_server_enabled`; its own TLS listener on port 8220 reuses the
+internal `es_certs` CA rather than the Kibana Let's Encrypt cert, since
+every agent already trusts that CA), all six Elastic Agents are
+Fleet-managed (step 2 — the `elastic_agent` role's standalone-config path
+is gone, one-way migration), and APM ingestion runs through the
+Fleet-managed APM integration on the apm-server host instead of the old
+self-managed `apm-server` container (step 3 — that role and its compose
+stack were deleted once the migration was verified live). A real bug
+surfaced only by running this live, not from inspection: `POST /api/fleet/
+setup` auto-creates a default output pointed at plain `http://
+localhost:9200`, silently wrong for this secured, multi-node, HTTPS
+cluster — every agent's metrics/docker output failed until
+`fleet_bootstrap` was extended to explicitly `PUT` the real ES hosts +
+internal CA onto Fleet's default output. Note the bootstrap password and
 generated CA/node cert did **not** end up going into SOPS the way this
 section originally planned — see `docs/ANSIBLE.md`'s "TLS + auth" section
 for the actual design (only the two human-chosen passwords are in

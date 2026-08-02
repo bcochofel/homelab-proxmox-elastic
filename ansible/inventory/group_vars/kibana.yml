@@ -18,14 +18,14 @@ kibana_port: 443
 
 kibana_publicbaseurl: "https://{{ kibana_fqdn }}"
 
-# ---- Fleet Server (Phase 3 step 1 — fleet_bootstrap/fleet_server roles) ----
-# Deliberately scoped to standing up Fleet Server itself only. Migrating the
-# six standalone Elastic Agents and the self-managed APM Server to
-# Fleet-managed mode are separate follow-up changes — see TODO.md.
+# ---- Fleet (Phase 3 — fleet_bootstrap/fleet_server roles) ----
+# fleet_server_port, homelab_agents_policy_id, and apm_server_agent_policy_id
+# live in group_vars/all.yml instead, alongside the other cross-host-visible
+# ports/IDs — the elastic_agent role (hosts: all) needs to see them too, not
+# just the kibana host these roles themselves run on.
 fleet_server_enabled: true
 fleet_server_policy_id: fleet-server-policy
 fleet_server_host_id: fleet-server-default
-fleet_server_port: 8220
 
 # Fleet encrypts the service tokens/API keys it stores as saved objects
 # with this key (xpack.encryptedSavedObjects.encryptionKey) — required for

@@ -4,11 +4,19 @@
 # Packer pre-installs the Elastic Agent package on every VM (disabled — see
 # ADR-8 in packer/ubuntu-26.04/README.md), pinned to whatever
 # elastic_agent_version was baked into the template at build time. This
-# role's job is to render the standalone config and enable the service —
-# but it must first check that the pre-installed version still matches
-# stack_version, since a stack_version bump rolled out via playbook without
-# also rebuilding the template would otherwise leave every VM's agent
-# silently stale (see TODO.md's Phase 1 Ansible item).
+# role's job is to make sure that install is current, then enroll it as a
+# Fleet-managed agent (Phase 3 steps 2+3) — it must first check the
+# pre-installed version still matches stack_version, since a stack_version
+# bump rolled out via playbook without also rebuilding the template would
+# otherwise leave every VM's agent silently stale (see TODO.md's Phase 1
+# Ansible item).
+#
+# One-way migration, no standalone/Fleet-managed toggle — this role used to
+# render a hand-written standalone elastic-agent.yml (see git history if a
+# rollback is ever needed); now Fleet pushes policy dynamically instead, so
+# there's nothing left to render. Matches how Phase 2's TLS/security
+# rollout was handled: verify live, then commit the new steady state
+# rather than carrying a permanent dual-path branch.
 
 - name: Check installed Elastic Agent version
   ansible.builtin.command: dpkg-query -W -f='${Version}' elastic-agent
@@ -40,20 +48,117 @@
         path: "/tmp/elastic-agent-{{ stack_version }}-{{ _dpkg_arch.stdout }}.deb"
         state: absent
 
-- name: Render elastic-agent.yml
-  ansible.builtin.template:
-    src: elastic-agent.yml.j2
-    dest: "{{ elastic_agent_config_path }}"
-    owner: root
-    group: root
-    mode: "0600"
+# apm-server needs the elastic-agent "servers" install flavor for the APM
+# integration input to work at all — the default "basic" flavor (what
+# Packer's pre-install and the version-drift reinstall above both use)
+# doesn't include it. Confirmed empirically: the agent's apm component
+# reported "input not supported - ensure you have installed the correct
+# flavor" and nothing ever listened on port 8200. dpkg tracks package
+# version, not flavor, so a same-version reinstall wouldn't naturally
+# trigger the flavor-specific postinst logic — purge first to guarantee
+# it does, gated by its own marker (separate from the version-drift check
+# above, and from the .fleet-enrolled marker below: purging wipes
+# /etc/elastic-agent, which incidentally clears .fleet-enrolled too, so
+# this must run before the enrollment block or it'd purge a live
+# enrollment out from under itself).
+- name: Ensure the apm-server host runs the "servers" Elastic Agent flavor
+  when: "'apm_server' in group_names"
   become: true
-  no_log: "{{ es_security_enabled | bool }}"
-  notify: Restart elastic-agent
+  block:
+    - name: Check for servers-flavor marker
+      ansible.builtin.stat:
+        path: /etc/elastic-agent/.servers-flavor-installed
+      register: _servers_flavor_marker
 
-- name: Enable and start Elastic Agent
+    - name: Install the servers-flavor Elastic Agent
+      when: not _servers_flavor_marker.stat.exists
+      block:
+        - name: Determine dpkg architecture
+          ansible.builtin.command: dpkg --print-architecture
+          register: _dpkg_arch_servers
+          changed_when: false
+
+        - name: Download the pinned Elastic Agent .deb
+          ansible.builtin.get_url:
+            url: "https://artifacts.elastic.co/downloads/beats/elastic-agent/elastic-agent-{{ stack_version }}-{{ _dpkg_arch_servers.stdout }}.deb"
+            dest: "/tmp/elastic-agent-{{ stack_version }}-{{ _dpkg_arch_servers.stdout }}.deb"
+            mode: "0644"
+
+        - name: Purge the existing (basic-flavor) Elastic Agent install
+          ansible.builtin.apt:
+            name: elastic-agent
+            state: absent
+            purge: true
+
+        - name: Install the servers-flavor Elastic Agent .deb
+          ansible.builtin.apt:
+            deb: "/tmp/elastic-agent-{{ stack_version }}-{{ _dpkg_arch_servers.stdout }}.deb"
+          environment:
+            ELASTIC_AGENT_FLAVOR: servers
+
+        - name: Remove the downloaded .deb
+          ansible.builtin.file:
+            path: "/tmp/elastic-agent-{{ stack_version }}-{{ _dpkg_arch_servers.stdout }}.deb"
+            state: absent
+
+        - name: Mark servers flavor installed
+          ansible.builtin.file:
+            path: /etc/elastic-agent/.servers-flavor-installed
+            state: touch
+            mode: "0600"
+
+# apm_server host gets its own dedicated agent policy (System + Docker +
+# APM) since Fleet agents belong to exactly one policy and the other five
+# hosts must not run the APM integration too — see
+# fleet_bootstrap/tasks/main.yml and docs/ANSIBLE.md.
+- name: Determine this host's Fleet agent policy and enrollment token file
+  ansible.builtin.set_fact:
+    _fleet_agent_policy_id: "{{ apm_server_agent_policy_id if ('apm_server' in group_names) else homelab_agents_policy_id }}"
+    _fleet_enrollment_token_file: "{{ 'apm_server_agent_enrollment_token.txt' if ('apm_server' in group_names) else 'homelab_agents_enrollment_token.txt' }}"
+
+# Self-contained marker file for idempotency, deliberately not trying to
+# infer enrollment state from Elastic's own internal state (fragile,
+# undocumented shape) or a live Fleet API lookup (more moving parts than
+# needed) — same cache-once idiom used everywhere else in this codebase
+# (es_certs, es_security_bootstrap, fleet_bootstrap).
+- name: Check for Fleet enrollment marker
+  ansible.builtin.stat:
+    path: /etc/elastic-agent/.fleet-enrolled
+  register: _fleet_enrolled_marker
+  become: true
+
+# elastic-agent enroll needs the agent's own daemon already running so it
+# can signal it to reload the new config live over its control socket
+# (/var/lib/elastic-agent/elastic-agent.sock) — stopping the service first
+# removes that socket entirely and enrollment fails outright trying to
+# restart a daemon that was never there. Verified empirically: "transport:
+# Error while dialing: ... elastic-agent.sock: connect: no such file or
+# directory". So the service must be started *before* enrolling, not after.
+- name: Ensure Elastic Agent is enabled and running
   ansible.builtin.systemd:
     name: elastic-agent
     enabled: true
     state: started
   become: true
+
+- name: Enroll as a Fleet-managed agent
+  when: not _fleet_enrolled_marker.stat.exists
+  become: true
+  block:
+    - name: Enroll Elastic Agent with Fleet Server
+      ansible.builtin.command:
+        argv:
+          - elastic-agent
+          - enroll
+          - "--url=https://{{ hostvars[groups['kibana'][0]].ansible_host }}:{{ fleet_server_port }}"
+          - "--enrollment-token={{ lookup('file', es_secrets_local_cache_dir ~ '/' ~ _fleet_enrollment_token_file) }}"
+          - "--certificate-authorities={{ es_shared_certs_dir }}/ca.crt"
+          - -f
+      no_log: true
+      changed_when: true
+
+    - name: Mark this host as Fleet-enrolled
+      ansible.builtin.file:
+        path: /etc/elastic-agent/.fleet-enrolled
+        state: touch
+        mode: "0600"

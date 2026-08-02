@@ -3,16 +3,15 @@
 #
 # Runs once, immediately after ES comes up with xpack.security enabled (see
 # playbooks/15-elasticsearch-security.yml, hosts: elasticsearch[0]). Sets
-# the built-in kibana_system user's password and mints the API keys APM
-# Server / standalone Elastic Agents use as their ES output credential —
-# none of Kibana/APM Server/Elastic Agent use the elastic superuser.
+# the built-in kibana_system user's password — Kibana never uses the
+# elastic superuser.
 #
-# Idempotency: an API key's secret is shown exactly once at creation.
-# Re-minting on every run would both orphan the previous key still baked
-# into every downstream host's already-rendered config and require
-# re-running those roles to pick up the new one. Cache each key in
-# es_secrets_local_cache_dir (controller-local, outside git — see
-# .gitignore) and only mint when missing.
+# The APM Server and standalone-Elastic-Agent API key minting this role
+# used to also do here is gone (Phase 3 steps 2+3): every agent is
+# Fleet-managed now and gets its ES output credentials from Fleet
+# enrollment instead (see fleet_bootstrap's enrollment-token minting and
+# the Fleet output config it pushes) — there's no standalone credential
+# left to mint or cache.
 
 - name: Wait for secured cluster health
   ansible.builtin.uri:
@@ -41,77 +40,3 @@
       password: "{{ kibana_system_password }}"
     status_code: 200
   no_log: true
-
-- name: Ensure API key cache directory exists
-  ansible.builtin.file:
-    path: "{{ es_secrets_local_cache_dir }}"
-    state: directory
-    mode: "0700"
-  delegate_to: localhost
-  become: false
-
-- name: Check for cached APM Server API key
-  ansible.builtin.stat:
-    path: "{{ es_secrets_local_cache_dir }}/apm_api_key.txt"
-  delegate_to: localhost
-  become: false
-  register: _apm_key_cached
-
-- name: Mint APM Server API key
-  ansible.builtin.uri:
-    url: "https://127.0.0.1:{{ es_http_port }}/_security/api_key"
-    method: POST
-    user: elastic
-    password: "{{ es_elastic_password }}"
-    ca_path: "{{ elastic_base_dir }}/elasticsearch/certs/ca.crt"
-    body_format: json
-    body:
-      name: "apm-server-output"
-      role_descriptors: "{{ es_apm_api_key_role_descriptors }}"
-    status_code: 200
-  register: _apm_key
-  no_log: true
-  when: not _apm_key_cached.stat.exists
-
-- name: Cache APM Server API key
-  ansible.builtin.copy:
-    content: "{{ _apm_key.json.id }}:{{ _apm_key.json.api_key }}"
-    dest: "{{ es_secrets_local_cache_dir }}/apm_api_key.txt"
-    mode: "0600"
-  delegate_to: localhost
-  become: false
-  no_log: true
-  when: not _apm_key_cached.stat.exists
-
-- name: Check for cached Elastic Agent API key
-  ansible.builtin.stat:
-    path: "{{ es_secrets_local_cache_dir }}/agent_api_key.txt"
-  delegate_to: localhost
-  become: false
-  register: _agent_key_cached
-
-- name: Mint shared Elastic Agent API key
-  ansible.builtin.uri:
-    url: "https://127.0.0.1:{{ es_http_port }}/_security/api_key"
-    method: POST
-    user: elastic
-    password: "{{ es_elastic_password }}"
-    ca_path: "{{ elastic_base_dir }}/elasticsearch/certs/ca.crt"
-    body_format: json
-    body:
-      name: "standalone-elastic-agent-output"
-      role_descriptors: "{{ es_agent_api_key_role_descriptors }}"
-    status_code: 200
-  register: _agent_key
-  no_log: true
-  when: not _agent_key_cached.stat.exists
-
-- name: Cache Elastic Agent API key
-  ansible.builtin.copy:
-    content: "{{ _agent_key.json.id }}:{{ _agent_key.json.api_key }}"
-    dest: "{{ es_secrets_local_cache_dir }}/agent_api_key.txt"
-    mode: "0600"
-  delegate_to: localhost
-  become: false
-  no_log: true
-  when: not _agent_key_cached.stat.exists

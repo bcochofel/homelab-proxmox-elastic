@@ -3,13 +3,14 @@
 #
 # Runs once, hosts: kibana, only when fleet_server_enabled. Scripts the
 # same Kibana Fleet setup a human would otherwise click through the UI
-# wizard for (POST /api/fleet/setup, create the Fleet Server agent policy,
-# register the Fleet Server host), plus mints the ES service token Fleet
-# Server authenticates with — all via ansible.builtin.uri, same idiom as
-# es_security_bootstrap's API-key minting. Idempotent throughout: every
-# create step is guarded by a GET-by-id check first, using fixed IDs
-# (fleet_server_policy_id, fleet_server_host_id) instead of relying on
-# name matching.
+# wizard for — Fleet Server's own setup (POST /api/fleet/setup, agent
+# policy, host registration, ES service token), plus (Phase 3 steps 2+3)
+# the two agent policies and package policies the six Elastic Agents and
+# the APM integration migrate onto, and their enrollment tokens — all via
+# ansible.builtin.uri, same idiom as es_security_bootstrap's API-key
+# minting. Idempotent throughout: every create step is guarded by a
+# GET-by-id check first, using fixed IDs instead of relying on name
+# matching.
 #
 # force_basic_auth: true on every call — Kibana's API doesn't send a
 # WWW-Authenticate challenge the way ES does, so ansible.builtin.uri's
@@ -46,6 +47,45 @@
     status_code: 200
   no_log: true
 
+# POST /api/fleet/setup auto-creates a default output ("fleet-default-output")
+# pointed at plain http://localhost:9200 — wrong for this cluster (HTTPS,
+# security on, three real ES nodes, self-signed internal CA). Every
+# Fleet-managed agent's data ships through whichever output its policy
+# resolves to, and agent policies default to the account-wide default
+# output when they don't set their own data_output_id — so every agent
+# enrolled so far was silently trying plain HTTP against its own
+# localhost:9200 and failing. Confirmed empirically: metrics-system.*/
+# metrics-docker.* data streams never got created at all, and a plain
+# HTTP GET to a real ES node's HTTPS-only port gets "Empty reply from
+# server" — the exact shape of the "EOF" errors agents reported.
+# PUT is safe to always re-run, same "safe to re-run" idiom as
+# POST /api/fleet/setup above.
+- name: Point Fleet's default output at the real ES cluster over HTTPS
+  ansible.builtin.uri:
+    url: "https://127.0.0.1:{{ kibana_port }}/api/fleet/outputs/fleet-default-output"
+    method: PUT
+    validate_certs: false
+    user: elastic
+    password: "{{ es_elastic_password }}"
+    force_basic_auth: true
+    headers:
+      kbn-xsrf: "true"
+    body_format: json
+    body:
+      name: default
+      type: elasticsearch
+      hosts: >-
+        {{ groups['elasticsearch']
+           | map('extract', hostvars, 'ansible_host')
+           | map('regex_replace', '^', 'https://')
+           | map('regex_replace', '$', ':' ~ es_http_port)
+           | list }}
+      ssl:
+        certificate_authorities:
+          - "{{ lookup('file', es_certs_local_cache_dir ~ '/ca.crt') }}"
+    status_code: 200
+  no_log: true
+
 - name: Check for an existing Fleet Server agent policy
   ansible.builtin.uri:
     url: "https://127.0.0.1:{{ kibana_port }}/api/fleet/agent_policies/{{ fleet_server_policy_id }}"
@@ -75,8 +115,32 @@
       namespace: default
       has_fleet_server: true
       is_default_fleet_server: true
+      monitoring_enabled: [logs, metrics]
     status_code: 200
   when: _fleet_policy_check.status == 404
+  no_log: true
+
+# PUT (unlike the create-if-missing POST above) is safe to always re-run,
+# same idiom as the output config fix above — retrofits monitoring_enabled
+# onto a policy that already existed before this was added. PUT requires
+# the full body (name/namespace included), not a partial patch — confirmed
+# against the API docs, not assumed.
+- name: Ensure agent monitoring (logs + metrics) is enabled on the Fleet Server policy
+  ansible.builtin.uri:
+    url: "https://127.0.0.1:{{ kibana_port }}/api/fleet/agent_policies/{{ fleet_server_policy_id }}"
+    method: PUT
+    validate_certs: false
+    user: elastic
+    password: "{{ es_elastic_password }}"
+    force_basic_auth: true
+    headers:
+      kbn-xsrf: "true"
+    body_format: json
+    body:
+      name: "Fleet Server Policy"
+      namespace: default
+      monitoring_enabled: [logs, metrics]
+    status_code: 200
   no_log: true
 
 - name: Check for an existing Fleet Server host registration
@@ -110,6 +174,341 @@
       is_default: true
     status_code: 200
   when: _fleet_host_check.status == 404
+  no_log: true
+
+- name: Check for an existing homelab agents policy
+  ansible.builtin.uri:
+    url: "https://127.0.0.1:{{ kibana_port }}/api/fleet/agent_policies/{{ homelab_agents_policy_id }}"
+    validate_certs: false
+    user: elastic
+    password: "{{ es_elastic_password }}"
+    force_basic_auth: true
+    status_code: [200, 404]
+  register: _homelab_policy_check
+  no_log: true
+  check_mode: false
+
+- name: Create the homelab agents policy
+  ansible.builtin.uri:
+    url: "https://127.0.0.1:{{ kibana_port }}/api/fleet/agent_policies?sys_monitoring=false"
+    method: POST
+    validate_certs: false
+    user: elastic
+    password: "{{ es_elastic_password }}"
+    force_basic_auth: true
+    headers:
+      kbn-xsrf: "true"
+    body_format: json
+    body:
+      id: "{{ homelab_agents_policy_id }}"
+      name: "Homelab Agents Policy"
+      namespace: default
+      monitoring_enabled: [logs, metrics]
+    status_code: 200
+  when: _homelab_policy_check.status == 404
+  no_log: true
+
+- name: Ensure agent monitoring (logs + metrics) is enabled on the homelab agents policy
+  ansible.builtin.uri:
+    url: "https://127.0.0.1:{{ kibana_port }}/api/fleet/agent_policies/{{ homelab_agents_policy_id }}"
+    method: PUT
+    validate_certs: false
+    user: elastic
+    password: "{{ es_elastic_password }}"
+    force_basic_auth: true
+    headers:
+      kbn-xsrf: "true"
+    body_format: json
+    body:
+      name: "Homelab Agents Policy"
+      namespace: default
+      monitoring_enabled: [logs, metrics]
+    status_code: 200
+  no_log: true
+
+- name: Check for an existing APM Server agent policy
+  ansible.builtin.uri:
+    url: "https://127.0.0.1:{{ kibana_port }}/api/fleet/agent_policies/{{ apm_server_agent_policy_id }}"
+    validate_certs: false
+    user: elastic
+    password: "{{ es_elastic_password }}"
+    force_basic_auth: true
+    status_code: [200, 404]
+  register: _apm_server_policy_check
+  no_log: true
+  check_mode: false
+
+- name: Create the APM Server agent policy
+  ansible.builtin.uri:
+    url: "https://127.0.0.1:{{ kibana_port }}/api/fleet/agent_policies?sys_monitoring=false"
+    method: POST
+    validate_certs: false
+    user: elastic
+    password: "{{ es_elastic_password }}"
+    force_basic_auth: true
+    headers:
+      kbn-xsrf: "true"
+    body_format: json
+    body:
+      id: "{{ apm_server_agent_policy_id }}"
+      name: "APM Server Agent Policy"
+      namespace: default
+      monitoring_enabled: [logs, metrics]
+    status_code: 200
+  when: _apm_server_policy_check.status == 404
+  no_log: true
+
+- name: Ensure agent monitoring (logs + metrics) is enabled on the APM Server agent policy
+  ansible.builtin.uri:
+    url: "https://127.0.0.1:{{ kibana_port }}/api/fleet/agent_policies/{{ apm_server_agent_policy_id }}"
+    method: PUT
+    validate_certs: false
+    user: elastic
+    password: "{{ es_elastic_password }}"
+    force_basic_auth: true
+    headers:
+      kbn-xsrf: "true"
+    body_format: json
+    body:
+      name: "APM Server Agent Policy"
+      namespace: default
+      monitoring_enabled: [logs, metrics]
+    status_code: 200
+  no_log: true
+
+# Package versions are looked up live rather than pinned here — they drift
+# independently of stack_version (system 2.22.1, docker 2.15.2 as of this
+# writing; apm tracks stack_version, e.g. 9.4.2). A loop is safe for this
+# part (unlike the package policies below): each iteration is completely
+# self-contained, same shape, no cross-loop index correlation needed.
+- name: Look up current version of each Fleet integration package
+  ansible.builtin.uri:
+    url: "https://127.0.0.1:{{ kibana_port }}/api/fleet/epm/packages/{{ item }}"
+    validate_certs: false
+    user: elastic
+    password: "{{ es_elastic_password }}"
+    force_basic_auth: true
+    status_code: 200
+  loop: [system, docker, apm]
+  register: _fleet_package_lookup
+  no_log: true
+  check_mode: false
+
+- name: Install Fleet integration packages not yet installed
+  ansible.builtin.uri:
+    url: "https://127.0.0.1:{{ kibana_port }}/api/fleet/epm/packages/{{ item.item }}/{{ item.json.item.version }}"
+    method: POST
+    validate_certs: false
+    user: elastic
+    password: "{{ es_elastic_password }}"
+    force_basic_auth: true
+    headers:
+      kbn-xsrf: "true"
+    body_format: json
+    body: {}
+    status_code: 200
+  loop: "{{ _fleet_package_lookup.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when: item.json.item.status != 'installed'
+  no_log: true
+
+# Package policies (integrations attached to an agent policy) are written
+# out individually rather than looped, deliberately — unlike the package
+# install step above, these are heterogeneous (different target policy,
+# different input overrides for apm) and each needs its own idempotent
+# GET-by-id check; correlating a create-loop back to a separate check-loop
+# by index is a real footgun (one silent off-by-one and you double-create
+# or skip). Explicit named tasks keep each one trivially reviewable.
+#
+# inputs: {} everywhere except apm's host override — Fleet's own default
+# integration config otherwise (confirmed with the user: simpler and more
+# maintainable than hand-replicating today's exact standalone metricsets
+# via a version-fragile package-policy schema). apm's default `host` var
+# is `localhost:8200` — loopback only, verified live against this
+# cluster's own package registry — which would silently break OTel demo's
+# cross-VM OTLP export, so that one var is explicitly overridden.
+
+- name: Check for an existing System package policy on the homelab agents policy
+  ansible.builtin.uri:
+    url: "https://127.0.0.1:{{ kibana_port }}/api/fleet/package_policies/system-homelab-agents"
+    validate_certs: false
+    user: elastic
+    password: "{{ es_elastic_password }}"
+    force_basic_auth: true
+    status_code: [200, 404]
+  register: _pkgpolicy_system_homelab_check
+  no_log: true
+  check_mode: false
+
+- name: Create the System package policy on the homelab agents policy
+  ansible.builtin.uri:
+    url: "https://127.0.0.1:{{ kibana_port }}/api/fleet/package_policies"
+    method: POST
+    validate_certs: false
+    user: elastic
+    password: "{{ es_elastic_password }}"
+    force_basic_auth: true
+    headers:
+      kbn-xsrf: "true"
+    body_format: json
+    body:
+      id: system-homelab-agents
+      name: system-homelab-agents
+      policy_ids: ["{{ homelab_agents_policy_id }}"]
+      package:
+        name: system
+        version: "{{ (_fleet_package_lookup.results | selectattr('item', 'equalto', 'system') | first).json.item.version }}"
+      inputs: {}
+    status_code: 200
+  when: _pkgpolicy_system_homelab_check.status == 404
+  no_log: true
+
+- name: Check for an existing Docker package policy on the homelab agents policy
+  ansible.builtin.uri:
+    url: "https://127.0.0.1:{{ kibana_port }}/api/fleet/package_policies/docker-homelab-agents"
+    validate_certs: false
+    user: elastic
+    password: "{{ es_elastic_password }}"
+    force_basic_auth: true
+    status_code: [200, 404]
+  register: _pkgpolicy_docker_homelab_check
+  no_log: true
+  check_mode: false
+
+- name: Create the Docker package policy on the homelab agents policy
+  ansible.builtin.uri:
+    url: "https://127.0.0.1:{{ kibana_port }}/api/fleet/package_policies"
+    method: POST
+    validate_certs: false
+    user: elastic
+    password: "{{ es_elastic_password }}"
+    force_basic_auth: true
+    headers:
+      kbn-xsrf: "true"
+    body_format: json
+    body:
+      id: docker-homelab-agents
+      name: docker-homelab-agents
+      policy_ids: ["{{ homelab_agents_policy_id }}"]
+      package:
+        name: docker
+        version: "{{ (_fleet_package_lookup.results | selectattr('item', 'equalto', 'docker') | first).json.item.version }}"
+      inputs: {}
+    status_code: 200
+  when: _pkgpolicy_docker_homelab_check.status == 404
+  no_log: true
+
+- name: Check for an existing System package policy on the APM Server agent policy
+  ansible.builtin.uri:
+    url: "https://127.0.0.1:{{ kibana_port }}/api/fleet/package_policies/system-apm-server-agent"
+    validate_certs: false
+    user: elastic
+    password: "{{ es_elastic_password }}"
+    force_basic_auth: true
+    status_code: [200, 404]
+  register: _pkgpolicy_system_apm_check
+  no_log: true
+  check_mode: false
+
+- name: Create the System package policy on the APM Server agent policy
+  ansible.builtin.uri:
+    url: "https://127.0.0.1:{{ kibana_port }}/api/fleet/package_policies"
+    method: POST
+    validate_certs: false
+    user: elastic
+    password: "{{ es_elastic_password }}"
+    force_basic_auth: true
+    headers:
+      kbn-xsrf: "true"
+    body_format: json
+    body:
+      id: system-apm-server-agent
+      name: system-apm-server-agent
+      policy_ids: ["{{ apm_server_agent_policy_id }}"]
+      package:
+        name: system
+        version: "{{ (_fleet_package_lookup.results | selectattr('item', 'equalto', 'system') | first).json.item.version }}"
+      inputs: {}
+    status_code: 200
+  when: _pkgpolicy_system_apm_check.status == 404
+  no_log: true
+
+- name: Check for an existing Docker package policy on the APM Server agent policy
+  ansible.builtin.uri:
+    url: "https://127.0.0.1:{{ kibana_port }}/api/fleet/package_policies/docker-apm-server-agent"
+    validate_certs: false
+    user: elastic
+    password: "{{ es_elastic_password }}"
+    force_basic_auth: true
+    status_code: [200, 404]
+  register: _pkgpolicy_docker_apm_check
+  no_log: true
+  check_mode: false
+
+- name: Create the Docker package policy on the APM Server agent policy
+  ansible.builtin.uri:
+    url: "https://127.0.0.1:{{ kibana_port }}/api/fleet/package_policies"
+    method: POST
+    validate_certs: false
+    user: elastic
+    password: "{{ es_elastic_password }}"
+    force_basic_auth: true
+    headers:
+      kbn-xsrf: "true"
+    body_format: json
+    body:
+      id: docker-apm-server-agent
+      name: docker-apm-server-agent
+      policy_ids: ["{{ apm_server_agent_policy_id }}"]
+      package:
+        name: docker
+        version: "{{ (_fleet_package_lookup.results | selectattr('item', 'equalto', 'docker') | first).json.item.version }}"
+      inputs: {}
+    status_code: 200
+  when: _pkgpolicy_docker_apm_check.status == 404
+  no_log: true
+
+- name: Check for an existing APM package policy on the APM Server agent policy
+  ansible.builtin.uri:
+    url: "https://127.0.0.1:{{ kibana_port }}/api/fleet/package_policies/apm-apm-server-agent"
+    validate_certs: false
+    user: elastic
+    password: "{{ es_elastic_password }}"
+    force_basic_auth: true
+    status_code: [200, 404]
+  register: _pkgpolicy_apm_check
+  no_log: true
+  check_mode: false
+
+- name: Create the APM package policy on the APM Server agent policy
+  ansible.builtin.uri:
+    url: "https://127.0.0.1:{{ kibana_port }}/api/fleet/package_policies"
+    method: POST
+    validate_certs: false
+    user: elastic
+    password: "{{ es_elastic_password }}"
+    force_basic_auth: true
+    headers:
+      kbn-xsrf: "true"
+    body_format: json
+    body:
+      id: apm-apm-server-agent
+      name: apm-apm-server-agent
+      policy_ids: ["{{ apm_server_agent_policy_id }}"]
+      package:
+        name: apm
+        version: "{{ (_fleet_package_lookup.results | selectattr('item', 'equalto', 'apm') | first).json.item.version }}"
+      inputs:
+        # Key is "{policy_template.name}-{input.type}", not the input's own
+        # type or the package name — confirmed empirically against this
+        # cluster's live API (the intuitive "apmserver" or "apm" alone
+        # both 400 with "Input not found").
+        apmserver-apm:
+          vars:
+            host: "0.0.0.0:{{ apm_server_port }}"
+    status_code: 200
+  when: _pkgpolicy_apm_check.status == 404
   no_log: true
 
 - name: Ensure secrets cache directory exists
@@ -155,3 +554,75 @@
   # run (no cache yet), which .json.token.value can't dereference. Real
   # runs are unaffected — the mint task actually executes there.
   when: not _fleet_token_cached.stat.exists and not ansible_check_mode
+
+- name: Check for cached homelab agents enrollment token
+  ansible.builtin.stat:
+    path: "{{ es_secrets_local_cache_dir }}/homelab_agents_enrollment_token.txt"
+  delegate_to: localhost
+  become: false
+  register: _homelab_enrollment_token_cached
+
+- name: Mint the homelab agents enrollment token
+  ansible.builtin.uri:
+    url: "https://127.0.0.1:{{ kibana_port }}/api/fleet/enrollment_api_keys"
+    method: POST
+    validate_certs: false
+    user: elastic
+    password: "{{ es_elastic_password }}"
+    force_basic_auth: true
+    headers:
+      kbn-xsrf: "true"
+    body_format: json
+    body:
+      name: homelab-agents-enrollment
+      policy_id: "{{ homelab_agents_policy_id }}"
+    status_code: 200
+  register: _homelab_enrollment_token
+  no_log: true
+  when: not _homelab_enrollment_token_cached.stat.exists
+
+- name: Cache the homelab agents enrollment token
+  ansible.builtin.copy:
+    content: "{{ _homelab_enrollment_token.json.item.api_key }}"
+    dest: "{{ es_secrets_local_cache_dir }}/homelab_agents_enrollment_token.txt"
+    mode: "0600"
+  delegate_to: localhost
+  become: false
+  no_log: true
+  when: not _homelab_enrollment_token_cached.stat.exists and not ansible_check_mode
+
+- name: Check for cached APM Server agent enrollment token
+  ansible.builtin.stat:
+    path: "{{ es_secrets_local_cache_dir }}/apm_server_agent_enrollment_token.txt"
+  delegate_to: localhost
+  become: false
+  register: _apm_server_enrollment_token_cached
+
+- name: Mint the APM Server agent enrollment token
+  ansible.builtin.uri:
+    url: "https://127.0.0.1:{{ kibana_port }}/api/fleet/enrollment_api_keys"
+    method: POST
+    validate_certs: false
+    user: elastic
+    password: "{{ es_elastic_password }}"
+    force_basic_auth: true
+    headers:
+      kbn-xsrf: "true"
+    body_format: json
+    body:
+      name: apm-server-agent-enrollment
+      policy_id: "{{ apm_server_agent_policy_id }}"
+    status_code: 200
+  register: _apm_server_enrollment_token
+  no_log: true
+  when: not _apm_server_enrollment_token_cached.stat.exists
+
+- name: Cache the APM Server agent enrollment token
+  ansible.builtin.copy:
+    content: "{{ _apm_server_enrollment_token.json.item.api_key }}"
+    dest: "{{ es_secrets_local_cache_dir }}/apm_server_agent_enrollment_token.txt"
+    mode: "0600"
+  delegate_to: localhost
+  become: false
+  no_log: true
+  when: not _apm_server_enrollment_token_cached.stat.exists and not ansible_check_mode
