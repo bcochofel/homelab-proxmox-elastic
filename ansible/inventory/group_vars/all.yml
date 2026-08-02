@@ -10,9 +10,10 @@ stack_version: "9.4.2"
 # Container images
 es_image: "docker.elastic.co/elasticsearch/elasticsearch:{{ stack_version }}"
 kibana_image: "docker.elastic.co/kibana/kibana:{{ stack_version }}"
-apm_server_image: "docker.elastic.co/apm/apm-server:{{ stack_version }}"
 # Fleet Server bootstraps from the elastic-agent image itself, not a
-# dedicated fleet-server one.
+# dedicated fleet-server one. Also what the apm-server host's Elastic Agent
+# uses to run the Fleet-managed APM integration — no separate apm-server
+# image anymore (Phase 3 step 3 removed the self-managed apm_server role).
 fleet_server_image: "docker.elastic.co/elastic-agent/elastic-agent:{{ stack_version }}"
 
 # ---- Security: ON (Phase 2 complete) ----
@@ -31,17 +32,17 @@ es_heap_size: "4g"
 elastic_base_dir: /opt/elastic
 
 # Where the CA cert lives on every host once TLS is on (es_certs role
-# distributes it here; kibana/apm_server/elastic_agent roles read it from
-# here to trust ES's HTTP layer).
+# distributes it here; kibana/elastic_agent roles read it from here to
+# trust ES's HTTP layer).
 es_shared_certs_dir: "{{ elastic_base_dir }}/certs"
 
 # Controller-local (not Terraform/hosts-generated) cache dirs for the
-# generated CA/node cert and minted API keys — kept outside git (see
+# generated CA/node cert and minted API keys/tokens — kept outside git (see
 # .gitignore). Living here, not in a role's defaults/, is deliberate: these
-# are read across roles (es_certs writes certs, es_security_bootstrap writes
-# API keys, kibana/apm_server/elastic_agent read them back), same
-# cross-host-visibility reason apm_server_port lives here instead of
-# roles/apm_server/defaults/.
+# are read across roles (es_certs writes certs, es_security_bootstrap and
+# fleet_bootstrap write credentials, kibana/fleet_server/elastic_agent read
+# them back), same cross-host-visibility reason apm_server_port lives here
+# instead of a role's own defaults/.
 es_certs_local_cache_dir: "{{ playbook_dir }}/../.certs"
 es_secrets_local_cache_dir: "{{ playbook_dir }}/../.secrets-cache"
 
@@ -51,10 +52,29 @@ es_transport_port: 9300
 # kibana_port lives in group_vars/kibana.yml instead, alongside the rest of
 # Kibana's own tuning — unlike es_http_port/apm_server_port below, nothing
 # outside the kibana host itself needs to see it.
-# apm_server_port is also referenced by otel_demo's role (a different host)
-# to point its OTLP exports at APM Server — must live here, not in
-# roles/apm_server/defaults/, since role defaults aren't visible cross-host.
+# apm_server_port is referenced by otel_demo's role (a different host) to
+# point its OTLP exports at the APM endpoint — now the Fleet-managed APM
+# integration running on the apm-server host's Elastic Agent (Phase 3 step
+# 3), not a standalone apm-server container, but the same host:port either
+# way. Must live here, not in a role's own defaults/, since role defaults
+# aren't visible cross-host.
 apm_server_port: 8200
+# fleet_server_port is referenced by the elastic_agent role (hosts: all)
+# to build every agent's enrollment URL — same cross-host-visibility
+# reason as apm_server_port above, even though Fleet Server itself only
+# runs on the kibana host.
+fleet_server_port: 8220
+
+# Steps 2+3 (Phase 3): the two agent policies the six Elastic Agents and
+# the APM integration migrate onto — read by the elastic_agent role
+# (hosts: all) to pick each host's enrollment target, so these need the
+# same cross-host visibility as the ports above. es-01/02/03, kibana,
+# otel-demo share homelab_agents_policy_id (System + Docker, Fleet's own
+# default inputs); apm-server gets its own policy (System + Docker + APM)
+# since Fleet agents belong to exactly one policy and the other five hosts
+# must not run the APM integration too. See docs/ANSIBLE.md.
+homelab_agents_policy_id: homelab-agents-policy
+apm_server_agent_policy_id: apm-server-agent-policy
 
 # ---- Passwords (Phase 2) ----
 # NOT certs/keys — those are generated and distributed by the es_certs role

@@ -1,6 +1,6 @@
 galaxy_info:
   author: Bruno Cochofel
-  description: Configure and enable the standalone Elastic Agent pre-installed by Packer
+  description: Enroll the Elastic Agent pre-installed by Packer as Fleet-managed
   license: MIT
   min_ansible_version: "2.15"
   galaxy_tags: []

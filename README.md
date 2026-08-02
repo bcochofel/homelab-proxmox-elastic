@@ -155,9 +155,11 @@ ansible-galaxy collection install -r requirements.yml
 ansible-playbook playbooks/site.yml
 ```
 
-Runs bootstrap -> Elasticsearch -> Kibana -> APM Server -> OTel demo ->
-Elastic Agent (all hosts) -> health check. See
-[`docs/ANSIBLE.md`](docs/ANSIBLE.md) for the role/playbook breakdown.
+Runs bootstrap -> Elasticsearch -> Kibana -> Fleet Server -> OTel demo ->
+Elastic Agent (all hosts, Fleet enrollment — this is also what brings the
+Fleet-managed APM integration online on the apm-server host) -> health
+check. See [`docs/ANSIBLE.md`](docs/ANSIBLE.md) for the role/playbook
+breakdown.
 
 **First run against a brand-new cluster** (empty ES data volumes, no prior
 cluster state): the checked-in `es_bootstrap_cluster: false` in
@@ -202,22 +204,23 @@ at its checked-in `false`.
 | es-01      | 2    | 8 GB | 60 G | Elasticsearch (master+data)    | 192.168.68.30 |
 | es-02      | 2    | 8 GB | 60 G | Elasticsearch (master+data)    | 192.168.68.31 |
 | es-03      | 2    | 8 GB | 60 G | Elasticsearch (master+data)    | 192.168.68.32 |
-| kibana     | 2    | 4 GB | 30 G | Kibana (+ Fleet Server, later) | 192.168.68.33 |
-| apm-server | 2    | 2 GB | 20 G | APM Server                     | 192.168.68.34 |
+| kibana     | 2    | 4 GB | 30 G | Kibana + Fleet Server          | 192.168.68.33 |
+| apm-server | 2    | 2 GB | 20 G | APM (Fleet-managed integration)| 192.168.68.34 |
 | otel-demo  | 2    | 4 GB | 30 G | OpenTelemetry demo             | 192.168.68.35 |
 
 `192.168.68.30-39` is reserved for this cluster; additional nodes should take
 the next free IP in that range (`.36`-`.39` currently free). No Logstash node
 — deliberately out of scope.
 
-Each Elastic Stack VM (ES, Kibana, APM Server) runs a single-container Docker
-Compose stack. The three ES containers form one real multi-node cluster
-across the VMs. Heap is 4 GB/node (≤50% RAM). `otel-demo` runs the upstream
+Each ES/Kibana VM runs a single-container Docker Compose stack. The three
+ES containers form one real multi-node cluster across the VMs. Heap is
+4 GB/node (≤50% RAM). `otel-demo` runs the upstream
 [open-telemetry/opentelemetry-demo](https://github.com/open-telemetry/opentelemetry-demo)
-compose stack, reconfigured to export traces to the APM Server instead of
-its bundled Jaeger/Grafana/Prometheus stack. Every VM in the topology,
-including `otel-demo`, also runs a standalone Elastic Agent for OS + Docker
-metrics/logs.
+compose stack, reconfigured to export traces to the APM endpoint instead of
+its bundled Jaeger/Grafana/Prometheus stack. Every VM in the topology runs
+a Fleet-managed Elastic Agent for OS + Docker metrics/logs — the
+apm-server host's agent additionally runs the APM integration, which is
+what actually ingests those traces (no separate `apm-server` container).
 
 ## Verify
 
@@ -227,8 +230,10 @@ metrics/logs.
   longer published on the host — only 443 is. See `docs/ANSIBLE.md`'s
   "Kibana TLS (Let's Encrypt)" section
 - Elasticsearch: `https://192.168.68.30:9200`
-- APM Server: `http://192.168.68.34:8200` (same as Kibana — not TLS-fronted
-  itself; only its own connection *to* Elasticsearch is)
+- APM: `http://192.168.68.34:8200` — the Fleet-managed APM integration on
+  the apm-server host's Elastic Agent, not a standalone container. Not
+  TLS-fronted itself; only its connection *to* Elasticsearch is (via
+  Fleet's own output config)
 - OTel demo frontend: `http://192.168.68.35:8080`
 
 Elasticsearch presents a self-signed cert from this cluster's own CA
@@ -289,19 +294,20 @@ sometimes does.
   cloud-init. Ansible's `common` role only runs preflight checks — it never
   configures the OS.
 - **Security:** `xpack.security.enabled: true` — ES transport + HTTP TLS via
-  a local CA, `elastic`/`kibana_system` credentials, API keys for APM
-  Server and Elastic Agent. Toggled by `es_security_enabled` in
-  `inventory/group_vars/all.yml`; see `docs/ANSIBLE.md` for the cert
-  generation/rollout mechanics.
+  a local CA, `elastic`/`kibana_system` credentials. Toggled by
+  `es_security_enabled` in `inventory/group_vars/all.yml`; see
+  `docs/ANSIBLE.md` for the cert generation/rollout mechanics.
 - **Decoupling:** Terraform and Ansible are run as separate, explicit
   commands — no `local-exec` chaining, and no Makefile wrapper around
   either write step, so the one command that actually changes
   infrastructure always stays visible and explicit.
-- **Elastic Agent:** standalone (deb package + Ansible-rendered config) on
-  every VM for OS + Docker metrics/logs, not Fleet-managed — Fleet Server
-  itself isn't deployed yet (TLS, its prerequisite, now is).
-- **APM Server:** its own VM/compose stack, self-managed — same reason as
-  Elastic Agent. Both migrate to Fleet-managed mode once Fleet Server is up.
+- **Elastic Agent:** Fleet-managed on every VM (Phase 3, complete) — deb
+  package pre-installed by Packer, enrolled by the `elastic_agent` role
+  (one-way migration, no standalone mode left). ES output credentials come
+  from Fleet enrollment, not a manually-minted API key.
+- **APM:** the Fleet-managed APM integration, running as part of the
+  apm-server host's own Elastic Agent — no separate self-managed
+  `apm-server` container anymore.
 - **No Logstash:** decided against entirely, not deferred. Ingest goes
   straight to Elasticsearch.
 - **Template:** all six VMs clone from the `ubuntu-26.04` Packer template.

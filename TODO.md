@@ -111,10 +111,32 @@ Roughly in dependency order — later phases build on earlier ones.
       `ansible.builtin.uri` against Kibana's Fleet HTTP API, same
       API-driven style as `es_security_bootstrap`, not the
       `elastic-agent` container's own `KIBANA_FLEET_SETUP` auto-bootstrap.
-      See docs/ANSIBLE.md's "Fleet Server (Phase 3, step 1)" section
-- [ ] Migrate the standalone Elastic Agents (all six VMs) to Fleet-managed
-- [ ] Migrate APM ingestion from the self-managed APM Server to the
-      Fleet-managed APM integration
+- [x] Migrate the standalone Elastic Agents (all six VMs) to Fleet-managed.
+      `elastic_agent` role rewritten one-way (no standalone fallback) —
+      es-01/02/03, kibana, otel-demo share `homelab-agents-policy` (System
+      + Docker, Fleet's own default inputs); apm-server gets its own
+      `apm-server-agent-policy` (System + Docker + APM), since Fleet
+      agents belong to exactly one policy. Real bug found live: Fleet's
+      auto-created default output pointed at plain `http://localhost:9200`,
+      wrong for this HTTPS/secured cluster — every agent's metrics/docker
+      output silently failed until `fleet_bootstrap` was extended to
+      explicitly point the output at the real ES hosts + internal CA
+- [x] Migrate APM ingestion from the self-managed APM Server to the
+      Fleet-managed APM integration. `apm_server` role/playbook/compose
+      stack deleted once verified live; `otel_demo`'s OTLP target needed no
+      changes (same host:port). Real bug found live: Elastic Agent 9.x's
+      default `basic` install flavor doesn't include the APM input at all
+      (`"input not supported... install the correct flavor"`) — apm-server
+      needs the `servers` flavor specifically (`ELASTIC_AGENT_FLAVOR=servers`),
+      which needs a purge + reinstall since dpkg tracks package version,
+      not flavor. See docs/ANSIBLE.md's "Fleet (Phase 3, complete)" section
+      for the full writeup and other bugs found live (Fleet Server
+      self-enrollment needing `FLEET_URL`/`FLEET_CA`, the APM package
+      policy's input-key naming, `ansible.builtin.uri` not sending Basic
+      auth preemptively against Kibana's API, and agent self-monitoring
+      needing `monitoring_enabled` explicitly set on every agent policy or
+      Kibana's Logs/Metrics tabs show as disabled even though the
+      System/Docker integrations are collecting data fine)
 
 ## Phase 4 — Broader telemetry & vulnerability data
 

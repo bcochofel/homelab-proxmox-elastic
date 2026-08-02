@@ -17,23 +17,21 @@ Roles:
   [`../packer/ubuntu-26.04/README.md`](../packer/ubuntu-26.04/README.md).
 - `elasticsearch` — identical compose + per-node `.env`; rolls one node at a time.
 - `kibana` — Kibana compose stack pointed at all ES nodes.
-- `apm_server` — same DRY compose pattern as ES/Kibana (identical
-  `docker-compose.yml` + `.env`); self-managed APM Server, not the
-  Fleet-managed APM integration, since Fleet Server isn't up yet (see
-  "Security sequencing" in `CLAUDE.md`).
 - `otel_demo` — checks out the upstream
   [`open-telemetry/opentelemetry-demo`](https://github.com/open-telemetry/opentelemetry-demo)
   compose project and overrides its OTLP exporter env vars
   (`OTEL_EXPORTER_OTLP_ENDPOINT` / `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`) to
   point at the `apm_server` host instead of the demo's bundled
-  Jaeger/Grafana/Prometheus stack.
+  Jaeger/Grafana/Prometheus stack. Unchanged by the Phase 3 APM migration
+  below — same host:port either way, now backed by the Fleet-managed APM
+  integration instead of a standalone container.
 - `elastic_agent` — applies to every host in the inventory (`hosts: all`),
-  including `otel-demo`. Installs the `.deb` package and renders a
-  standalone `elastic-agent.yml` (OS + Docker metrics/logs, output pointed
-  at the `elasticsearch` group). Standalone, not Fleet-managed — same
-  reason as `apm_server`: no Fleet Server yet. Migrating these agents (and
-  APM ingestion) to Fleet-managed mode is planned work for after TLS +
-  Fleet Server land, not part of this role.
+  including `otel-demo`. Fleet-managed (Phase 3 steps 2+3, complete) — see
+  "Fleet" below. Still checks the pre-installed `.deb` package's version
+  against `stack_version` and reinstalls if drifted, same as before; the
+  standalone-config rendering this role used to also do is gone (one-way
+  migration, no dual-mode toggle — see git history if a rollback is ever
+  needed).
 - `es_certs` — generates one CA + one shared node certificate (PEM, SANs
   covering all three ES nodes + Kibana + APM Server) via
   `elasticsearch-certutil`, then distributes it. Generation runs via a
@@ -54,11 +52,11 @@ Roles:
   `site.yml` chain.
 - `es_security_bootstrap` — runs once against `elasticsearch[0]`, only when
   `es_security_enabled` is true: sets the built-in `kibana_system` user's
-  password and mints the API keys APM Server / standalone Elastic Agents
-  use as their ES output credential (never the `elastic` superuser).
-  Minted keys are cached in `ansible/.secrets-cache/` (gitignored, shown
-  once at creation) so re-running the playbook doesn't orphan a
-  previously-minted key.
+  password (never the `elastic` superuser). Used to also mint the API keys
+  APM Server / standalone Elastic Agents used as their ES output credential
+  — gone since Phase 3: every agent is Fleet-managed now and gets its ES
+  output credentials from Fleet enrollment instead (see `fleet_bootstrap`
+  below), so there's no standalone credential left to mint.
 - `kibana_tls` — Let's Encrypt certificate for Kibana's public URL
   (`kibana_fqdn`, `inventory/group_vars/kibana.yml`), via `certbot` +
   `certbot-dns-cloudflare` (DNS-01 — Kibana has no public port 80/443 to
@@ -80,27 +78,62 @@ Roles:
   below.
 - `fleet_bootstrap` — runs once against `kibana`, only when
   `fleet_server_enabled`: scripts the same Kibana Fleet setup a human would
-  otherwise click through the UI wizard for (`POST /api/fleet/setup`,
-  create the Fleet Server agent policy, register the Fleet Server host —
-  all via `ansible.builtin.uri`, same idiom as `es_security_bootstrap`'s
-  API-key minting), then mints the `elastic/fleet-server` ES service
-  account token Fleet Server authenticates with. Idempotent throughout —
+  otherwise click through the UI wizard for — `POST /api/fleet/setup`, the
+  Fleet Server agent policy + host registration, the `elastic/fleet-server`
+  ES service account token, and (Phase 3 steps 2+3) the two agent policies
+  the six Elastic Agents and the APM integration migrate onto
+  (`homelab-agents-policy`: System + Docker; `apm-server-agent-policy`:
+  System + Docker + APM), their package policies, and their enrollment
+  tokens — all via `ansible.builtin.uri`, same idiom as
+  `es_security_bootstrap`'s old API-key minting. Idempotent throughout —
   every create step is guarded by a GET-by-id check first, using fixed IDs
-  (`fleet_server_policy_id`, `fleet_server_host_id`) rather than name
-  matching, and the service token is cached in `ansible/.secrets-cache/`
-  the same way the APM/Agent API keys are.
+  rather than name matching, and minted credentials are cached in
+  `ansible/.secrets-cache/`.
+
+  Also explicitly points Fleet's default output at the real ES cluster
+  (`PUT /api/fleet/outputs/fleet-default-output`) — `POST /api/fleet/setup`
+  auto-creates that output pointed at plain `http://localhost:9200`, which
+  is silently wrong here (HTTPS, security on, three real ES nodes, a
+  self-signed internal CA) and every enrolled agent's data output failed
+  until this was added. Found live, not from inspection: `metrics-system.*`
+  /`metrics-docker.*` data streams never got created at all, and a plain
+  HTTP request to a real ES node's HTTPS-only port gets "Empty reply from
+  server" — the exact shape of the "EOF" errors agents were reporting.
+
+  Package policy `inputs` are `{}` (Fleet's own defaults) everywhere except
+  APM's `host` var, which defaults to `localhost:8200` — loopback only,
+  would silently break `otel_demo`'s cross-VM OTLP export — so that one is
+  explicitly overridden to `0.0.0.0:8200`. The input key for that override
+  is `"{policy_template.name}-{input.type}"` (`apmserver-apm`), not the
+  input's own type or the package name alone — confirmed empirically
+  against a live cluster (`"apmserver"` and `"apm"` alone both 400 with
+  `"Input not found"`).
+
+  All three agent policies also get `monitoring_enabled: [logs, metrics]`
+  — without it, Fleet's own "Logs"/"Metrics" tabs for an agent in the
+  Kibana UI show as disabled (this is agent self-monitoring visibility,
+  unrelated to whether the System/Docker integrations are actually
+  collecting data, which they were the whole time). Set both at policy
+  creation time and via an unconditional `PUT` retrofit right after —
+  `PUT` requires the full body (name/namespace, not a partial patch) and
+  is safe to always re-run, same idiom as the output-config fix above;
+  the retrofit is what actually fixed it on this cluster, since the
+  policies already existed by the time this was added.
 - `fleet_server` — Fleet Server itself, same DRY compose pattern as
-  ES/Kibana/APM Server. Bootstraps from the `elastic-agent` image (there's
-  no dedicated `fleet-server` image), pinned to `stack_version` like every
-  other image here. Its own TLS listener (port 8220 — what the six Elastic
-  Agents will eventually connect to, once a follow-up change migrates them
-  to Fleet-managed mode) reuses the internal CA `es_certs` already
-  generates: that cert's SAN list already covers the Kibana host, so the
-  role just copies the node cert/key from the controller-local cache onto
-  this host rather than `es_certs` needing any changes. `FLEET_SERVER_ELASTICSEARCH_HOST`
+  ES/Kibana. Bootstraps from the `elastic-agent` image (there's no
+  dedicated `fleet-server` image), pinned to `stack_version` like every
+  other image here. Its own TLS listener (port 8220, what every Elastic
+  Agent connects to) reuses the internal CA `es_certs` already generates:
+  that cert's SAN list already covers the Kibana host, so the role just
+  copies the node cert/key from the controller-local cache onto this host
+  rather than `es_certs` needing any changes. `FLEET_SERVER_ELASTICSEARCH_HOST`
   points at a single ES node (the env var takes one host, not a list) —
-  same kind of homelab-scale simplification already accepted for the
-  shared standalone Elastic Agent API key.
+  same kind of homelab-scale simplification already accepted elsewhere. A
+  Fleet Server is itself always an enrolled Elastic Agent — the container
+  also self-enrolls against the Fleet Server it just started, which needs
+  `FLEET_URL` (+ `FLEET_CA` to trust its own cert) set too; without them,
+  enrollment fails outright (`"url is required when a certificate is
+  provided"`), confirmed live.
 
 ## TLS + auth (Phase 2)
 
@@ -146,12 +179,10 @@ steady state. Rollback is the mirror image:
 `-e es_security_enabled=false -e security_rollout=true` — `esdata` volumes
 are never touched by this change, so it's data-loss-free.
 
-**Credential model, deliberately simplified for homelab scale:** Kibana uses
-the built-in `kibana_system` user; APM Server and every standalone Elastic
-Agent use API keys instead of the `elastic` superuser — but all six agents
-share **one** API key rather than one per host. Least-privilege purism
-wasn't judged worth the added bookkeeping at this scale; revisit if that
-changes.
+**Credential model:** Kibana uses the built-in `kibana_system` user, never
+the `elastic` superuser. (Prior to Phase 3, APM Server and every standalone
+Elastic Agent used a shared API key the same way — see "Fleet" below for
+what replaced that once everything became Fleet-managed.)
 
 ## Kibana TLS (Let's Encrypt)
 
@@ -187,16 +218,32 @@ re-run automatically on every future renewal, copying the new cert into
 `{{ elastic_base_dir }}/kibana/certs/` and restarting the `kibana`
 container.
 
-## Fleet Server (Phase 3, step 1)
+## Fleet (Phase 3, complete)
 
-`fleet_server_enabled` (`inventory/group_vars/kibana.yml`) gates the whole
-`35-fleet-server.yml` play. Deliberately scoped to **standing up Fleet
-Server itself only** — migrating the six standalone Elastic Agents and the
-self-managed APM Server to Fleet-managed mode are separate follow-up
-changes, tracked in `TODO.md`, once this is confirmed healthy. Mirrors how
-Phase 2's TLS rollout was staged.
+Three steps, landed as three changes with live verification at each stage:
 
-**Secrets.** `KIBANA_ENCRYPTION_KEY` is the one new secret this needs —
+1. **Fleet Server** on the Kibana VM — `fleet_server_enabled`
+   (`inventory/group_vars/kibana.yml`) gates the `35-fleet-server.yml` play.
+2. **All six Elastic Agents Fleet-managed** — the `elastic_agent` role no
+   longer renders a standalone config, only enrolls (one-way migration).
+3. **APM ingestion via the Fleet-managed APM integration** — the standalone
+   `apm_server` role and its compose stack are gone; the apm-server host's
+   own Elastic Agent runs the APM integration instead, same host:port
+   `otel_demo` already targeted. Elastic Agent 9.x ships in install
+   "flavors" — the default `basic` flavor (what Packer's pre-install and
+   every other host uses) doesn't include the APM input at all. Confirmed
+   live: the apm component reported `"input not supported - ensure you
+   have installed the correct flavor"` and nothing ever listened on 8200.
+   `elastic_agent`'s tasks purge and reinstall the `.deb` with
+   `ELASTIC_AGENT_FLAVOR=servers` for the `apm_server` host specifically
+   (own marker file, separate from the version-drift and enrollment
+   markers — purging wipes `/etc/elastic-agent`, so this has to run
+   *before* enrollment or it'd purge a live enrollment out from under
+   itself). dpkg tracks package version, not flavor, so a same-version
+   reinstall wouldn't have triggered the flavor-specific postinst logic on
+   its own.
+
+**Secrets.** `KIBANA_ENCRYPTION_KEY` is the one new secret Fleet needs —
 Kibana's `xpack.encryptedSavedObjects.encryptionKey`, which Fleet requires
 to encrypt the service tokens/API keys it stores as saved objects.
 Discovered empirically, not from a checklist: `POST /api/fleet/setup`
@@ -208,20 +255,27 @@ one (`openssl rand -hex 32`), add it to `secrets.yaml`, export from
 empty.
 
 Fleet Server's own TLS (port 8220) reuses the internal `es_certs` CA rather
-than the new Let's Encrypt cert — every Elastic Agent that will eventually
-enroll against it already trusts that CA (it's already distributed to all
-six VMs), so there's nothing extra to distribute. Its ES output, unlike
-Kibana's or APM Server's, points at a single ES node rather than the full
-`elasticsearch` group — `FLEET_SERVER_ELASTICSEARCH_HOST` only takes one
-host, a real container-env-var constraint, not a stylistic choice.
+than the new Let's Encrypt cert — every Elastic Agent that enrolls against
+it already trusts that CA (it's already distributed to all six VMs), so
+there's nothing extra to distribute. Its own ES output, unlike Kibana's,
+points at a single ES node rather than the full `elasticsearch` group —
+`FLEET_SERVER_ELASTICSEARCH_HOST` only takes one host, a real
+container-env-var constraint, not a stylistic choice.
 
-The Kibana-side setup (agent policy, Fleet Server host registration) is
-scripted via `ansible.builtin.uri` against Kibana's own Fleet HTTP API
-rather than relying on the `elastic-agent` container's own
-`KIBANA_FLEET_SETUP` auto-bootstrap env vars — keeps it in the same
-API-driven, idempotent, inspectable style every other secret/credential in
-this repo already uses (`es_security_bootstrap`'s API-key minting), instead
-of a second, less transparent bootstrap mechanism.
+All Kibana-side setup (agent policies, package policies, Fleet Server host
+registration, Fleet's default output config) is scripted via
+`ansible.builtin.uri` against Kibana's own Fleet HTTP API rather than
+relying on the `elastic-agent` container's own `KIBANA_FLEET_SETUP`
+auto-bootstrap env vars — keeps it in the same API-driven, idempotent,
+inspectable style every other secret/credential in this repo already uses
+(`es_security_bootstrap`'s old API-key minting), instead of a second, less
+transparent bootstrap mechanism. See the `fleet_bootstrap`/`fleet_server`/
+`elastic_agent` role summaries above for what surfaced only by running
+this live: agents silently trying plain HTTP against Fleet's
+auto-generated default output, Fleet Server's own self-enrollment needing
+`FLEET_URL`/`FLEET_CA`, `ansible.builtin.uri` not sending Basic auth
+credentials preemptively against Kibana's API, and the APM package
+policy's input-key naming.
 
 Playbooks (all under `playbooks/`, run via `site.yml`'s `import_playbook`
 chain):
@@ -231,22 +285,24 @@ chain):
   (`es_certs` role), `hosts: all`. Unconditional, inert until
   `es_security_enabled` is true.
 - `10-elasticsearch.yml` — ES cluster.
-- `15-elasticsearch-security.yml` — `kibana_system` password + API key
-  minting (`es_security_bootstrap` role), only when `es_security_enabled`.
+- `15-elasticsearch-security.yml` — `kibana_system` password
+  (`es_security_bootstrap` role), only when `es_security_enabled`.
 - `18-kibana-tls.yml` — Kibana's Let's Encrypt certificate (`kibana_tls`
   role), before Kibana itself since the container's compose file bind-mounts
   the cert.
 - `20-kibana.yml` — Kibana.
-- `30-apm-server.yml` — APM Server.
-- `35-fleet-server.yml` — Fleet Server (`fleet_bootstrap` + `fleet_server`
-  roles), only when `fleet_server_enabled`.
+- `35-fleet-server.yml` — Fleet Server + all agent/package policies +
+  enrollment tokens (`fleet_bootstrap` + `fleet_server` roles), only when
+  `fleet_server_enabled`.
 - `40-otel-demo.yml` — OTel demo.
-- `50-elastic-agent.yml` — Elastic Agent, `hosts: all`.
-- `99-healthcheck.yml` — asserts cluster green with N nodes, Kibana up, APM
-  Server up, Fleet Server up (when enabled), and the OTel demo stack
+- `50-elastic-agent.yml` — Elastic Agent enrollment, `hosts: all` (includes
+  the apm-server host, which is what actually brings the Fleet-managed APM
+  integration online there).
+- `99-healthcheck.yml` — asserts cluster green with N nodes, Kibana up,
+  Fleet Server up (when enabled), APM reachable, and the OTel demo stack
   running.
 - `site.yml` — the full chain: bootstrap -> certs -> ES -> security
-  bootstrap -> Kibana TLS -> Kibana -> APM Server -> Fleet Server -> OTel
+  bootstrap -> Kibana TLS -> Kibana -> Fleet Server -> OTel
   demo -> Elastic Agent (all hosts) -> health.
 
 `ansible.cfg` sets `roles_path = roles` so role lookup works regardless of

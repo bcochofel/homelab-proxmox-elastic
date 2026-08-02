@@ -1,7 +1,0 @@
-galaxy_info:
-  author: Bruno Cochofel
-  description: Run a self-managed APM Server as a Docker Compose stack
-  license: MIT
-  min_ansible_version: "2.15"
-  galaxy_tags: []
-dependencies: []
