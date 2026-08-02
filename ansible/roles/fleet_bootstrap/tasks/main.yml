@@ -1,0 +1,157 @@
+---
+# tasks file for fleet_bootstrap
+#
+# Runs once, hosts: kibana, only when fleet_server_enabled. Scripts the
+# same Kibana Fleet setup a human would otherwise click through the UI
+# wizard for (POST /api/fleet/setup, create the Fleet Server agent policy,
+# register the Fleet Server host), plus mints the ES service token Fleet
+# Server authenticates with — all via ansible.builtin.uri, same idiom as
+# es_security_bootstrap's API-key minting. Idempotent throughout: every
+# create step is guarded by a GET-by-id check first, using fixed IDs
+# (fleet_server_policy_id, fleet_server_host_id) instead of relying on
+# name matching.
+#
+# force_basic_auth: true on every call — Kibana's API doesn't send a
+# WWW-Authenticate challenge the way ES does, so ansible.builtin.uri's
+# default lazy-auth flow never attaches credentials on the first request
+# against it (verified empirically: 401 with no auth header sent at all).
+
+- name: Wait for Kibana API status
+  ansible.builtin.uri:
+    url: "https://127.0.0.1:{{ kibana_port }}/api/status"
+    validate_certs: false
+    return_content: true
+  register: _kb
+  until: _kb.status == 200
+  retries: 30
+  delay: 10
+  # ansible.builtin.uri doesn't support check mode at all (any invocation
+  # is skipped under --check, not just mutating ones) — force this GET to
+  # actually run since it's read-only and the two GET-by-id checks below
+  # need it to have really happened.
+  check_mode: false
+
+- name: Initialize Fleet in Kibana (POST /api/fleet/setup — safe to re-run)
+  ansible.builtin.uri:
+    url: "https://127.0.0.1:{{ kibana_port }}/api/fleet/setup"
+    method: POST
+    validate_certs: false
+    user: elastic
+    password: "{{ es_elastic_password }}"
+    force_basic_auth: true
+    headers:
+      kbn-xsrf: "true"
+    body_format: json
+    body: {}
+    status_code: 200
+  no_log: true
+
+- name: Check for an existing Fleet Server agent policy
+  ansible.builtin.uri:
+    url: "https://127.0.0.1:{{ kibana_port }}/api/fleet/agent_policies/{{ fleet_server_policy_id }}"
+    validate_certs: false
+    user: elastic
+    password: "{{ es_elastic_password }}"
+    force_basic_auth: true
+    status_code: [200, 404]
+  register: _fleet_policy_check
+  no_log: true
+  check_mode: false
+
+- name: Create the Fleet Server agent policy
+  ansible.builtin.uri:
+    url: "https://127.0.0.1:{{ kibana_port }}/api/fleet/agent_policies?sys_monitoring=false"
+    method: POST
+    validate_certs: false
+    user: elastic
+    password: "{{ es_elastic_password }}"
+    force_basic_auth: true
+    headers:
+      kbn-xsrf: "true"
+    body_format: json
+    body:
+      id: "{{ fleet_server_policy_id }}"
+      name: "Fleet Server Policy"
+      namespace: default
+      has_fleet_server: true
+      is_default_fleet_server: true
+    status_code: 200
+  when: _fleet_policy_check.status == 404
+  no_log: true
+
+- name: Check for an existing Fleet Server host registration
+  ansible.builtin.uri:
+    url: "https://127.0.0.1:{{ kibana_port }}/api/fleet/fleet_server_hosts/{{ fleet_server_host_id }}"
+    validate_certs: false
+    user: elastic
+    password: "{{ es_elastic_password }}"
+    force_basic_auth: true
+    status_code: [200, 404]
+  register: _fleet_host_check
+  no_log: true
+  check_mode: false
+
+- name: Register the Fleet Server host
+  ansible.builtin.uri:
+    url: "https://127.0.0.1:{{ kibana_port }}/api/fleet/fleet_server_hosts"
+    method: POST
+    validate_certs: false
+    user: elastic
+    password: "{{ es_elastic_password }}"
+    force_basic_auth: true
+    headers:
+      kbn-xsrf: "true"
+    body_format: json
+    body:
+      id: "{{ fleet_server_host_id }}"
+      name: "Fleet Server"
+      host_urls:
+        - "https://{{ ansible_host }}:{{ fleet_server_port }}"
+      is_default: true
+    status_code: 200
+  when: _fleet_host_check.status == 404
+  no_log: true
+
+- name: Ensure secrets cache directory exists
+  ansible.builtin.file:
+    path: "{{ es_secrets_local_cache_dir }}"
+    state: directory
+    mode: "0700"
+  delegate_to: localhost
+  become: false
+
+- name: Check for cached Fleet Server service token
+  ansible.builtin.stat:
+    path: "{{ es_secrets_local_cache_dir }}/fleet_server_service_token.txt"
+  delegate_to: localhost
+  become: false
+  register: _fleet_token_cached
+
+- name: Mint the elastic/fleet-server service account token
+  ansible.builtin.uri:
+    url: "https://127.0.0.1:{{ es_http_port }}/_security/service/elastic/fleet-server/credential/token/fleet-server-token"
+    method: POST
+    user: elastic
+    password: "{{ es_elastic_password }}"
+    force_basic_auth: true
+    ca_path: "{{ elastic_base_dir }}/elasticsearch/certs/ca.crt"
+    status_code: 200
+  register: _fleet_token
+  delegate_to: "{{ groups['elasticsearch'][0] }}"
+  no_log: true
+  when: not _fleet_token_cached.stat.exists
+
+- name: Cache the Fleet Server service token
+  ansible.builtin.copy:
+    content: "{{ _fleet_token.json.token.value }}"
+    dest: "{{ es_secrets_local_cache_dir }}/fleet_server_service_token.txt"
+    mode: "0600"
+  delegate_to: localhost
+  become: false
+  no_log: true
+  # ansible_check_mode guard: the mint task above is a POST, correctly
+  # skipped under --check (mutations shouldn't run in dry-run) — but that
+  # leaves _fleet_token as an empty skip result on a from-scratch --check
+  # run (no cache yet), which .json.token.value can't dereference. Real
+  # runs are unaffected — the mint task actually executes there.
+  when: not _fleet_token_cached.stat.exists and not ansible_check_mode

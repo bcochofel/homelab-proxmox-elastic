@@ -1,0 +1,6 @@
+---
+# defaults file for fleet_bootstrap
+#
+# fleet_server_enabled, fleet_server_policy_id, and fleet_server_port are
+# cross-role shared vars — defined in inventory/group_vars/kibana.yml, not
+# here, since the fleet_server role also reads them.

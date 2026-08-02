@@ -1,0 +1,7 @@
+galaxy_info:
+  author: Bruno Cochofel
+  description: Run Fleet Server as a Docker Compose stack (elastic-agent image, FLEET_SERVER_* bootstrap)
+  license: MIT
+  min_ansible_version: "2.15"
+  galaxy_tags: []
+dependencies: []
