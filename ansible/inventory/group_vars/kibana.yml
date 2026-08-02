@@ -17,3 +17,21 @@ cloudflare_api_token: "{{ lookup('env', 'CLOUDFLARE_API_TOKEN') }}"
 kibana_port: 443
 
 kibana_publicbaseurl: "https://{{ kibana_fqdn }}"
+
+# ---- Fleet Server (Phase 3 step 1 — fleet_bootstrap/fleet_server roles) ----
+# Deliberately scoped to standing up Fleet Server itself only. Migrating the
+# six standalone Elastic Agents and the self-managed APM Server to
+# Fleet-managed mode are separate follow-up changes — see TODO.md.
+fleet_server_enabled: true
+fleet_server_policy_id: fleet-server-policy
+fleet_server_host_id: fleet-server-default
+fleet_server_port: 8220
+
+# Fleet encrypts the service tokens/API keys it stores as saved objects
+# with this key (xpack.encryptedSavedObjects.encryptionKey) — required for
+# POST /api/fleet/setup to succeed at all, verified empirically against a
+# live Kibana ("Agent binary source needs encrypted saved object api key
+# to be set" otherwise). Human-chosen, like ELASTIC_PASSWORD/
+# KIBANA_SYSTEM_PASSWORD — generate with e.g. `openssl rand -hex 32`, add
+# to secrets.yaml as KIBANA_ENCRYPTION_KEY, export from ansible/.envrc.
+kibana_encryption_key: "{{ lookup('env', 'KIBANA_ENCRYPTION_KEY') }}"

@@ -26,7 +26,7 @@ Packer (template) -> Terraform (clone VMs + generate inventory) -> Ansible (conf
 ```
 
 Topology: 3 Elasticsearch nodes (es-01/02/03, 192.168.68.30-32), 1 Kibana
-(192.168.68.33 — also runs Fleet Server, once TLS lands), 1 APM Server
+(192.168.68.33 — also runs Fleet Server), 1 APM Server
 (192.168.68.34), and 1 OpenTelemetry demo VM (192.168.68.35, the upstream
 [`open-telemetry/opentelemetry-demo`](https://github.com/open-telemetry/opentelemetry-demo)
 compose stack, reconfigured to export traces to the APM Server instead of
@@ -55,15 +55,16 @@ reserved for this cluster — additional nodes take the next free IP in range
 - **Elastic Agent runs standalone, not Fleet-managed, on every VM** (deb
   package pre-installed but disabled by Packer, then Ansible renders
   `elastic-agent.yml` and enables/starts it — see ADR-8 in
-  `packer/ubuntu-26.04/README.md`), including the OTel demo VM. Reason:
-  Fleet Server needs TLS to enroll agents against,
-  and TLS is deliberately deferred to reach a green cluster fast (see
-  "Security sequencing" and `TODO.md`). Migrating these agents to
-  Fleet-managed mode is itself a planned step *after* Fleet Server comes up
-  on the Kibana VM — not part of this change.
+  `packer/ubuntu-26.04/README.md`), including the OTel demo VM. Fleet
+  Server is now up on the Kibana VM (Phase 3 step 1, `fleet_bootstrap`/
+  `fleet_server` roles — see "Security sequencing"), but migrating these
+  six agents to Fleet-managed mode is deliberately scoped as its own
+  follow-up change, not part of standing up Fleet Server itself. Don't
+  migrate them without a separate, explicit ask.
 - **APM Server is its own VM/compose stack, self-managed** (not the
-  Fleet-managed APM integration) — same reasoning as Elastic Agent: Fleet
-  isn't live yet. Revisit once Fleet Server + TLS land.
+  Fleet-managed APM integration) — same reasoning as Elastic Agent:
+  migrating APM ingestion to the Fleet-managed integration is a separate
+  follow-up change, not part of standing up Fleet Server itself.
 - **No Logstash.** Decided against entirely, not deferred — ingest goes
   straight to Elasticsearch (via Elastic Agent output / ES ingest pipelines).
   Don't propose adding a Logstash role or VM.
@@ -339,12 +340,16 @@ don't correspond to them.
 
 `xpack.security` + TLS are on (Phase 2, complete) — that was the hard
 prerequisite **Fleet enrollment** needed, since Fleet Server requires a
-secured cluster to enroll agents against. Fleet Server itself is not
-deployed yet (Phase 3, next up): it deploys on the Kibana VM, and the
+secured cluster to enroll agents against. Fleet Server itself is now
+deployed on the Kibana VM (Phase 3 step 1, complete — `fleet_bootstrap` +
+`fleet_server` roles, `playbooks/35-fleet-server.yml`, gated on
+`fleet_server_enabled`). Its own TLS listener (port 8220) reuses the
+internal `es_certs` CA, not the Kibana Let's Encrypt cert, since every
+agent that'll eventually enroll already trusts that CA. Still open,
+deliberately scoped as separate follow-up changes: re-enrolling the
 standalone Elastic Agents already running on all six VMs (installed in
-Phase 1) get re-enrolled as Fleet-managed — that migration, and switching
-APM ingestion from the self-managed APM Server to the Fleet-managed APM
-integration, are both part of that phase. Note the bootstrap password and
+Phase 1) as Fleet-managed, and switching APM ingestion from the
+self-managed APM Server to the Fleet-managed APM integration. Note the bootstrap password and
 generated CA/node cert did **not** end up going into SOPS the way this
 section originally planned — see `docs/ANSIBLE.md`'s "TLS + auth" section
 for the actual design (only the two human-chosen passwords are in

@@ -102,8 +102,16 @@ Roughly in dependency order — later phases build on earlier ones.
 
 ## Phase 3 — Fleet
 
-- [ ] Fleet Server on the Kibana VM (needs Phase 2 — Fleet enrollment
-      requires TLS)
+- [x] Fleet Server on the Kibana VM (`fleet_bootstrap` + `fleet_server`
+      roles, `playbooks/35-fleet-server.yml`, gated on
+      `fleet_server_enabled`). Own TLS listener (port 8220) reuses the
+      internal `es_certs` CA, not the Kibana Let's Encrypt cert — every
+      agent that'll eventually enroll already trusts that CA. Kibana-side
+      setup (agent policy, Fleet Server host) scripted via
+      `ansible.builtin.uri` against Kibana's Fleet HTTP API, same
+      API-driven style as `es_security_bootstrap`, not the
+      `elastic-agent` container's own `KIBANA_FLEET_SETUP` auto-bootstrap.
+      See docs/ANSIBLE.md's "Fleet Server (Phase 3, step 1)" section
 - [ ] Migrate the standalone Elastic Agents (all six VMs) to Fleet-managed
 - [ ] Migrate APM ingestion from the self-managed APM Server to the
       Fleet-managed APM integration

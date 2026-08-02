@@ -14,6 +14,8 @@
   import_playbook: 20-kibana.yml
 - name: APM Server
   import_playbook: 30-apm-server.yml
+- name: Fleet Server
+  import_playbook: 35-fleet-server.yml
 - name: OTel demo
   import_playbook: 40-otel-demo.yml
 - name: Elastic Agent

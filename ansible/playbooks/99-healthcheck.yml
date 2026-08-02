@@ -39,6 +39,21 @@
       retries: 30
       delay: 10
 
+- name: Fleet Server reachability
+  hosts: kibana
+  gather_facts: false
+  tasks:
+    - name: Wait for Fleet Server status
+      ansible.builtin.uri:
+        url: "https://127.0.0.1:{{ fleet_server_port }}/api/status"
+        ca_path: "{{ elastic_base_dir }}/fleet-server/certs/ca.crt"
+        return_content: true
+      register: _fleet
+      until: _fleet.status == 200
+      retries: 30
+      delay: 10
+      when: fleet_server_enabled | default(false) | bool
+
 - name: APM Server reachability
   hosts: apm_server
   gather_facts: false

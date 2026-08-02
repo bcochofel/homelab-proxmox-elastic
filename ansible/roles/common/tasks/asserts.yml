@@ -47,3 +47,14 @@
       Add it to secrets.yaml, export from ansible/.envrc, then
       `direnv allow ansible` — see docs/ANSIBLE.md.
   when: "'kibana' in group_names and kibana_tls_enabled | default(false) | bool"
+
+- name: Verify Kibana encryption key is available (Fleet Server preflight)
+  ansible.builtin.assert:
+    that:
+      - kibana_encryption_key | length > 0
+    fail_msg: >-
+      fleet_server_enabled is true but KIBANA_ENCRYPTION_KEY resolved
+      empty. Generate one (e.g. `openssl rand -hex 32`), add it to
+      secrets.yaml, export from ansible/.envrc, then `direnv allow
+      ansible` — see docs/ANSIBLE.md.
+  when: "'kibana' in group_names and fleet_server_enabled | default(false) | bool"

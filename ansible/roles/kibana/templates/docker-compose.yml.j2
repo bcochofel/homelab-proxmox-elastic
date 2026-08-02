@@ -21,6 +21,13 @@ services:
       - SERVER_SSL_CERTIFICATE=/usr/share/kibana/config/letsencrypt/fullchain.pem
       - SERVER_SSL_KEY=/usr/share/kibana/config/letsencrypt/privkey.pem
 {% endif %}
+{% if fleet_server_enabled | default(false) | bool %}
+      # Fleet encrypts the service tokens/API keys it stores as saved
+      # objects with this key — without it, POST /api/fleet/setup fails
+      # ("Agent binary source needs encrypted saved object api key to be
+      # set"), verified empirically against a live Kibana.
+      - XPACK_ENCRYPTEDSAVEDOBJECTS_ENCRYPTIONKEY=${KIBANA_ENCRYPTION_KEY}
+{% endif %}
 {% if es_security_enabled | bool or kibana_tls_enabled | bool %}
     volumes:
 {% if es_security_enabled | bool %}

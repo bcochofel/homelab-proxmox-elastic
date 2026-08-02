@@ -78,6 +78,29 @@ Roles:
   container so it picks up the new cert. Needs `CLOUDFLARE_API_TOKEN`
   (Zone:DNS:Edit only, scoped to `bcochofel.com`) — see "TLS + auth"
   below.
+- `fleet_bootstrap` — runs once against `kibana`, only when
+  `fleet_server_enabled`: scripts the same Kibana Fleet setup a human would
+  otherwise click through the UI wizard for (`POST /api/fleet/setup`,
+  create the Fleet Server agent policy, register the Fleet Server host —
+  all via `ansible.builtin.uri`, same idiom as `es_security_bootstrap`'s
+  API-key minting), then mints the `elastic/fleet-server` ES service
+  account token Fleet Server authenticates with. Idempotent throughout —
+  every create step is guarded by a GET-by-id check first, using fixed IDs
+  (`fleet_server_policy_id`, `fleet_server_host_id`) rather than name
+  matching, and the service token is cached in `ansible/.secrets-cache/`
+  the same way the APM/Agent API keys are.
+- `fleet_server` — Fleet Server itself, same DRY compose pattern as
+  ES/Kibana/APM Server. Bootstraps from the `elastic-agent` image (there's
+  no dedicated `fleet-server` image), pinned to `stack_version` like every
+  other image here. Its own TLS listener (port 8220 — what the six Elastic
+  Agents will eventually connect to, once a follow-up change migrates them
+  to Fleet-managed mode) reuses the internal CA `es_certs` already
+  generates: that cert's SAN list already covers the Kibana host, so the
+  role just copies the node cert/key from the controller-local cache onto
+  this host rather than `es_certs` needing any changes. `FLEET_SERVER_ELASTICSEARCH_HOST`
+  points at a single ES node (the env var takes one host, not a list) —
+  same kind of homelab-scale simplification already accepted for the
+  shared standalone Elastic Agent API key.
 
 ## TLS + auth (Phase 2)
 
@@ -164,6 +187,42 @@ re-run automatically on every future renewal, copying the new cert into
 `{{ elastic_base_dir }}/kibana/certs/` and restarting the `kibana`
 container.
 
+## Fleet Server (Phase 3, step 1)
+
+`fleet_server_enabled` (`inventory/group_vars/kibana.yml`) gates the whole
+`35-fleet-server.yml` play. Deliberately scoped to **standing up Fleet
+Server itself only** — migrating the six standalone Elastic Agents and the
+self-managed APM Server to Fleet-managed mode are separate follow-up
+changes, tracked in `TODO.md`, once this is confirmed healthy. Mirrors how
+Phase 2's TLS rollout was staged.
+
+**Secrets.** `KIBANA_ENCRYPTION_KEY` is the one new secret this needs —
+Kibana's `xpack.encryptedSavedObjects.encryptionKey`, which Fleet requires
+to encrypt the service tokens/API keys it stores as saved objects.
+Discovered empirically, not from a checklist: `POST /api/fleet/setup`
+fails outright with `"Agent binary source needs encrypted saved object api
+key to be set"` without it. Human-chosen like `ELASTIC_PASSWORD` — generate
+one (`openssl rand -hex 32`), add it to `secrets.yaml`, export from
+`ansible/.envrc`, then `direnv allow ansible`. A preflight assert in
+`common` (gated on `fleet_server_enabled`) fails loudly if it resolves
+empty.
+
+Fleet Server's own TLS (port 8220) reuses the internal `es_certs` CA rather
+than the new Let's Encrypt cert — every Elastic Agent that will eventually
+enroll against it already trusts that CA (it's already distributed to all
+six VMs), so there's nothing extra to distribute. Its ES output, unlike
+Kibana's or APM Server's, points at a single ES node rather than the full
+`elasticsearch` group — `FLEET_SERVER_ELASTICSEARCH_HOST` only takes one
+host, a real container-env-var constraint, not a stylistic choice.
+
+The Kibana-side setup (agent policy, Fleet Server host registration) is
+scripted via `ansible.builtin.uri` against Kibana's own Fleet HTTP API
+rather than relying on the `elastic-agent` container's own
+`KIBANA_FLEET_SETUP` auto-bootstrap env vars — keeps it in the same
+API-driven, idempotent, inspectable style every other secret/credential in
+this repo already uses (`es_security_bootstrap`'s API-key minting), instead
+of a second, less transparent bootstrap mechanism.
+
 Playbooks (all under `playbooks/`, run via `site.yml`'s `import_playbook`
 chain):
 
@@ -179,13 +238,16 @@ chain):
   the cert.
 - `20-kibana.yml` — Kibana.
 - `30-apm-server.yml` — APM Server.
+- `35-fleet-server.yml` — Fleet Server (`fleet_bootstrap` + `fleet_server`
+  roles), only when `fleet_server_enabled`.
 - `40-otel-demo.yml` — OTel demo.
 - `50-elastic-agent.yml` — Elastic Agent, `hosts: all`.
 - `99-healthcheck.yml` — asserts cluster green with N nodes, Kibana up, APM
-  Server up, and the OTel demo stack running.
+  Server up, Fleet Server up (when enabled), and the OTel demo stack
+  running.
 - `site.yml` — the full chain: bootstrap -> certs -> ES -> security
-  bootstrap -> Kibana TLS -> Kibana -> APM Server -> OTel demo -> Elastic
-  Agent (all hosts) -> health.
+  bootstrap -> Kibana TLS -> Kibana -> APM Server -> Fleet Server -> OTel
+  demo -> Elastic Agent (all hosts) -> health.
 
 `ansible.cfg` sets `roles_path = roles` so role lookup works regardless of
 which playbook (or subdirectory) is invoked.
