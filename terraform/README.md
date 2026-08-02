@@ -67,6 +67,6 @@ See [`../docs/TERRAFORM.md`](../docs/TERRAFORM.md).
 | <a name="output_es_nodes"></a> [es\_nodes](#output\_es\_nodes) | Elasticsearch node names -> {vmid, ip} |
 | <a name="output_inventory_path"></a> [inventory\_path](#output\_inventory\_path) | Path to the generated Ansible inventory |
 | <a name="output_kibana"></a> [kibana](#output\_kibana) | Kibana node details |
-| <a name="output_kibana_url"></a> [kibana\_url](#output\_kibana\_url) | Kibana URL once provisioned |
+| <a name="output_kibana_url"></a> [kibana\_url](#output\_kibana\_url) | Kibana URL once provisioned (Let's Encrypt TLS, see docs/ANSIBLE.md) |
 | <a name="output_otel_demo"></a> [otel\_demo](#output\_otel\_demo) | OpenTelemetry demo node details |
 <!-- END_TF_DOCS -->

@@ -1,0 +1,7 @@
+galaxy_info:
+  author: Bruno Cochofel
+  description: Let's Encrypt certificate lifecycle for Kibana's public URL (certbot + DNS-01 via Cloudflare)
+  license: MIT
+  min_ansible_version: "2.15"
+  galaxy_tags: []
+dependencies: []

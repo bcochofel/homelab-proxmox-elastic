@@ -18,8 +18,11 @@ output "kibana" {
 }
 
 output "kibana_url" {
-  value       = "http://${module.kibana.ip}:5601"
-  description = "Kibana URL once provisioned"
+  # Port must stay in sync with kibana_port in
+  # ansible/inventory/group_vars/kibana.yml — Terraform has no variable of
+  # its own for it, this is a hand-kept mirror.
+  value       = "https://kibana.homelab.bcochofel.com:443"
+  description = "Kibana URL once provisioned (Let's Encrypt TLS, see docs/ANSIBLE.md)"
 }
 
 output "apm_server" {

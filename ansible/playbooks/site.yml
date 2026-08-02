@@ -8,6 +8,8 @@
   import_playbook: 10-elasticsearch.yml
 - name: Elasticsearch security bootstrap
   import_playbook: 15-elasticsearch-security.yml
+- name: Kibana Let's Encrypt TLS
+  import_playbook: 18-kibana-tls.yml
 - name: Kibana
   import_playbook: 20-kibana.yml
 - name: APM Server
