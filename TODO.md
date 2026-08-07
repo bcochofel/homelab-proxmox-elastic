@@ -147,8 +147,6 @@ Roughly in dependency order — later phases build on earlier ones.
       FIM (file integrity monitoring) + basic host protection, Auditd
       Manager gives kernel-level audit events for rootkit/tamper detection
       and forensic-style querying after the fact
-- [ ] Metricbeat/Elastic Agent module for the *Proxmox host* itself (the
-      MS-01 hypervisor) — distinct from the per-guest-VM agents in Phase 1
 - [x] Trivy vulnerability/CVE scanning of the Packer template — the actual
       OS image/packages baked into the VM, not the Terraform IaC scan that
       already runs in pre-commit today. Done at the Packer/OS level
@@ -204,10 +202,11 @@ Roughly in dependency order — later phases build on earlier ones.
 
 - [x] GitHub MCP (official remote server, fine-grained PAT)
 - [x] Proxmox MCP (`gilby125/mcp-proxmox`, pinned commit, read-only token)
+- [x] Elasticsearch MCP (`elastic-mcp` npm package, pinned version,
+      read-only API key) — community server, not the custom build
+      originally planned here; see `CLAUDE.md`'s Agent-tooling rollout
 - [ ] Self-hosted GitHub Actions runner — moves `terraform apply` off the
       local write credential entirely
-- [ ] Custom Elasticsearch MCP server (`cluster_health`, `list_indices`,
-      shard allocation)
 
 ## Improvements (revisit once there's more operational experience)
 
