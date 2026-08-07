@@ -337,9 +337,73 @@ don't correspond to them.
 3. **Self-hosted GitHub Actions runner** — move `terraform apply` behind it; the
    runner holds the write credential, the AI agent never does. `apply` gated on
    merge/approval the agent cannot pass.
-4. **Custom Elasticsearch MCP server** — written last, exposing `cluster_health`,
-   `list_indices`, shard allocation. Design it after operating the cluster, so
-   the tools reflect real use.
+4. **Elasticsearch MCP** — `csimi/elastic-mcp` (npm package `elastic-mcp`,
+   pinned exact version, not `@latest`), a community server, not the
+   custom-built-last one originally planned here. Elastic's own official
+   server (`@elastic/mcp-server-elasticsearch`) is deprecated in favor of
+   the Agent Builder MCP endpoint built into Kibana 9.2+, which needs a
+   license tier this homelab doesn't have — ruled it out on that basis, not
+   on capability. Picked over the other live community option,
+   `@awesome-ai/elasticsearch-mcp` (more active, 22 stars vs. 1), because
+   that one registers write tools (bulk index, reindex, delete) with no
+   app-level off switch — `elastic-mcp` is read-only by default
+   (`ELASTICSEARCH_ENABLE_WRITES` gates the write tools, left unset here),
+   matching this repo's read-capability + read-only-credential,
+   belt-and-suspenders posture for every other MCP server. Code was read
+   end to end before installing (small: `index.js`/`server.js`/
+   `es-client.js`/`util.js`/`tools/*.js`, ~20KB total) — it only talks to
+   the configured `ELASTICSEARCH_URL` via the official `@elastic/
+   elasticsearch` client, no telemetry or other outbound calls.
+
+   Auth is a dedicated least-privilege API key (cluster `monitor` + index
+   `read`/`view_index_metadata` on `*`), minted the same way `mcp@pve` was
+   for Proxmox — the real security boundary is this key's scope, not the
+   app's read-only default:
+
+   ```bash
+   cd ansible   # direnv-loaded ELASTIC_PASSWORD
+   curl --cacert .certs/ca.crt -u "elastic:$ELASTIC_PASSWORD" \
+     -X POST "https://192.168.68.30:9200/_security/api_key" \
+     -H 'Content-Type: application/json' \
+     -d '{
+       "name": "elastic-mcp",
+       "role_descriptors": {
+         "elastic_mcp_read_only": {
+           "cluster": ["monitor"],
+           "indices": [
+             { "names": ["*"], "privileges": ["read", "view_index_metadata"] }
+           ]
+         }
+       }
+     }'
+   ```
+
+   The response's `encoded` field is `ELASTICSEARCH_API_KEY`. TLS trust
+   uses the internal `es_certs` CA via a fingerprint (no CA-file option in
+   this client, unlike `curl --cacert`):
+
+   ```bash
+   openssl x509 -in ansible/.certs/ca.crt -noout -fingerprint -sha256 | cut -d= -f2
+   ```
+
+   Then, local scope (same reasoning as GitHub/Proxmox MCP — never
+   `--scope project` with a literal secret):
+
+   ```bash
+   claude mcp add elastic \
+     -e ELASTICSEARCH_URL=https://192.168.68.30:9200 \
+     -e ELASTICSEARCH_API_KEY=<encoded-value-from-the-api-key-response> \
+     -e ELASTICSEARCH_CA_FINGERPRINT=<fingerprint-from-openssl-above> \
+     -- npx -y elastic-mcp@1.1.0
+   ```
+
+   Verify with `claude mcp list` (expect `✔ Connected`) — confirmed
+   working this way 2026-08-07. Any of the three ES nodes works as
+   `ELASTICSEARCH_URL`; the shared node cert's SAN list covers all of
+   them. `get_kibana_object` (reads `.kibana*` saved objects) was left
+   unwired — it needs a second, restricted-index grant on top of the role
+   above; add it later via the Update API key API if needed, without
+   rotating the key.
 
 ## Security sequencing
 

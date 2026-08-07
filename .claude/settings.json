@@ -103,7 +103,13 @@
       "Bash(claude mcp list)",
       "Bash(rm -rf ansible/roles/apm_server)",
       "Bash(rm -f ansible/playbooks/30-apm-server.yml)",
-      "Bash(timeout 60 npx --yes markdownlint-cli2 README.md CLAUDE.md TODO.md docs/ANSIBLE.md)"
+      "Bash(timeout 60 npx --yes markdownlint-cli2 README.md CLAUDE.md TODO.md docs/ANSIBLE.md)",
+      "Bash(direnv exec . bash -c ' *)",
+      "Bash(python3 -m json.tool)",
+      "Bash(gh api *)",
+      "Bash(curl -fsSL \"https://raw.githubusercontent.com/csimi/elastic-mcp/master/src/tools/kibana.js\")",
+      "Bash(curl -fsSL \"https://raw.githubusercontent.com/csimi/elastic-mcp/master/.env.example\")",
+      "Bash(curl -fsSL \"https://raw.githubusercontent.com/csimi/elastic-mcp/master/README.md\")"
     ],
     "deny": [
       "Bash(sops -d *)",
