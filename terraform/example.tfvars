@@ -6,7 +6,7 @@ proxmox_endpoint = "https://192.168.68.10:8006/"
 proxmox_insecure = true
 target_node      = "pve"
 
-vm_template  = "ubuntu-26.04-template"
+vm_template  = "ubuntu-26.04-elastic"
 cluster_name = "homelab-observability"
 
 gateway        = "192.168.68.1"

@@ -99,7 +99,7 @@ source "proxmox-iso" "ubuntu-26-04" {
 # Build configuration
 # ==========================================================
 build {
-  name    = "ubuntu-26-04-template"
+  name    = "ubuntu-26-04-elastic"
   sources = ["source.proxmox-iso.ubuntu-26-04"]
 
   # --------------------------------------------------------

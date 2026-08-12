@@ -60,13 +60,13 @@ variable "vm_id" {
 variable "vm_name" {
   type        = string
   description = "VM template name"
-  default     = "ubuntu-26.04-template"
+  default     = "ubuntu-26.04-elastic"
 }
 
 variable "vm_description" {
   type        = string
   description = "VM template description"
-  default     = "Ubuntu 26.04 LTS template"
+  default     = "Ubuntu 26.04 LTS template for Elastic"
 }
 
 variable "qemu_agent" {
