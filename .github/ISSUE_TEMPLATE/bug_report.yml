@@ -23,7 +23,7 @@ body:
         - Packer
         - Terraform
         - Ansible
-        - Elastic Stack (ES/Kibana/APM/OTel demo)
+        - Elastic Stack (ES/Kibana/APM)
         - CI/CD
         - Other
     validations:

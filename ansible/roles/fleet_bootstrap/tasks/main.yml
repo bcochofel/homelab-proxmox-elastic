@@ -326,8 +326,8 @@
 # maintainable than hand-replicating today's exact standalone metricsets
 # via a version-fragile package-policy schema). apm's default `host` var
 # is `localhost:8200` — loopback only, verified live against this
-# cluster's own package registry — which would silently break OTel demo's
-# cross-VM OTLP export, so that one var is explicitly overridden.
+# cluster's own package registry — which would silently break OTLP export
+# from other VMs, so that one var is explicitly overridden.
 
 - name: Check for an existing System package policy on the homelab agents policy
   ansible.builtin.uri:

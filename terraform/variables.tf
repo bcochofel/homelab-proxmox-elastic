@@ -95,21 +95,6 @@ variable "apm_server_node" {
   }
 }
 
-variable "otel_demo_node" {
-  type = object({
-    name    = string
-    vmid    = number
-    ip_cidr = string
-    cores   = number
-    memory  = number
-    disk    = number
-  })
-  description = "OpenTelemetry demo node definition (upstream opentelemetry-demo compose stack)"
-  default = {
-    name = "otel-demo", vmid = 9530, ip_cidr = "192.168.68.35/22", cores = 4, memory = 8192, disk = 60
-  }
-}
-
 # --------------------------------------------------------
 # Networking
 # --------------------------------------------------------

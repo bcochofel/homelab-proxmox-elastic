@@ -66,16 +66,3 @@
       until: _apm.status == 200
       retries: 30
       delay: 10
-
-- name: OTel demo reachability
-  hosts: otel_demo
-  gather_facts: false
-  tasks:
-    - name: Wait for the demo frontend (via frontend-proxy) to respond
-      ansible.builtin.uri:
-        url: "http://127.0.0.1:8080/"
-        status_code: [200, 301, 302]
-      register: _otel
-      until: _otel.status in [200, 301, 302]
-      retries: 30
-      delay: 10

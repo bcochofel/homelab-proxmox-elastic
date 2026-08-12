@@ -1,8 +1,8 @@
 # Ansible — configure the Elastic observability cluster
 
 Consumes the Terraform-generated `inventory/hosts.ini`, which now carries
-four groups — `elasticsearch`, `kibana`, `apm_server`, `otel_demo` — one per
-VM role. `inventory/group_vars/` (adjacent to `hosts.ini`, so discovery
+three groups — `elasticsearch`, `kibana`, `apm_server` — one per VM role.
+`inventory/group_vars/` (adjacent to `hosts.ini`, so discovery
 doesn't depend on where a playbook lives) is hand-authored (pins
 `stack_version`, heap, security toggle) and is never overwritten by
 Terraform.
@@ -17,16 +17,8 @@ Roles:
   [`../packer/ubuntu-26.04/README.md`](../packer/ubuntu-26.04/README.md).
 - `elasticsearch` — identical compose + per-node `.env`; rolls one node at a time.
 - `kibana` — Kibana compose stack pointed at all ES nodes.
-- `otel_demo` — checks out the upstream
-  [`open-telemetry/opentelemetry-demo`](https://github.com/open-telemetry/opentelemetry-demo)
-  compose project and overrides its OTLP exporter env vars
-  (`OTEL_EXPORTER_OTLP_ENDPOINT` / `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`) to
-  point at the `apm_server` host instead of the demo's bundled
-  Jaeger/Grafana/Prometheus stack. Unchanged by the Phase 3 APM migration
-  below — same host:port either way, now backed by the Fleet-managed APM
-  integration instead of a standalone container.
-- `elastic_agent` — applies to every host in the inventory (`hosts: all`),
-  including `otel-demo`. Fleet-managed (Phase 3 steps 2+3, complete) — see
+- `elastic_agent` — applies to every host in the inventory (`hosts: all`).
+  Fleet-managed (Phase 3 steps 2+3, complete) — see
   "Fleet" below. Still checks the pre-installed `.deb` package's version
   against `stack_version` and reinstalls if drifted, same as before; the
   standalone-config rendering this role used to also do is gone (one-way
@@ -81,7 +73,7 @@ Roles:
   otherwise click through the UI wizard for — `POST /api/fleet/setup`, the
   Fleet Server agent policy + host registration, the `elastic/fleet-server`
   ES service account token, and (Phase 3 steps 2+3) the two agent policies
-  the six Elastic Agents and the APM integration migrate onto
+  the five Elastic Agents and the APM integration migrate onto
   (`homelab-agents-policy`: System + Docker; `apm-server-agent-policy`:
   System + Docker + APM), their package policies, and their enrollment
   tokens — all via `ansible.builtin.uri`, same idiom as
@@ -102,8 +94,8 @@ Roles:
 
   Package policy `inputs` are `{}` (Fleet's own defaults) everywhere except
   APM's `host` var, which defaults to `localhost:8200` — loopback only,
-  would silently break `otel_demo`'s cross-VM OTLP export — so that one is
-  explicitly overridden to `0.0.0.0:8200`. The input key for that override
+  would silently break cross-VM OTLP export from other hosts — so that one
+  is explicitly overridden to `0.0.0.0:8200`. The input key for that override
   is `"{policy_template.name}-{input.type}"` (`apmserver-apm`), not the
   input's own type or the package name alone — confirmed empirically
   against a live cluster (`"apmserver"` and `"apm"` alone both 400 with
@@ -224,12 +216,12 @@ Three steps, landed as three changes with live verification at each stage:
 
 1. **Fleet Server** on the Kibana VM — `fleet_server_enabled`
    (`inventory/group_vars/kibana.yml`) gates the `35-fleet-server.yml` play.
-2. **All six Elastic Agents Fleet-managed** — the `elastic_agent` role no
+2. **All five Elastic Agents Fleet-managed** — the `elastic_agent` role no
    longer renders a standalone config, only enrolls (one-way migration).
 3. **APM ingestion via the Fleet-managed APM integration** — the standalone
    `apm_server` role and its compose stack are gone; the apm-server host's
-   own Elastic Agent runs the APM integration instead, same host:port
-   `otel_demo` already targeted. Elastic Agent 9.x ships in install
+   own Elastic Agent runs the APM integration instead. Elastic Agent 9.x
+   ships in install
    "flavors" — the default `basic` flavor (what Packer's pre-install and
    every other host uses) doesn't include the APM input at all. Confirmed
    live: the apm component reported `"input not supported - ensure you
@@ -256,7 +248,7 @@ empty.
 
 Fleet Server's own TLS (port 8220) reuses the internal `es_certs` CA rather
 than the new Let's Encrypt cert — every Elastic Agent that enrolls against
-it already trusts that CA (it's already distributed to all six VMs), so
+it already trusts that CA (it's already distributed to all five VMs), so
 there's nothing extra to distribute. Its own ES output, unlike Kibana's,
 points at a single ES node rather than the full `elasticsearch` group —
 `FLEET_SERVER_ELASTICSEARCH_HOST` only takes one host, a real
@@ -294,16 +286,14 @@ chain):
 - `35-fleet-server.yml` — Fleet Server + all agent/package policies +
   enrollment tokens (`fleet_bootstrap` + `fleet_server` roles), only when
   `fleet_server_enabled`.
-- `40-otel-demo.yml` — OTel demo.
 - `50-elastic-agent.yml` — Elastic Agent enrollment, `hosts: all` (includes
   the apm-server host, which is what actually brings the Fleet-managed APM
   integration online there).
 - `99-healthcheck.yml` — asserts cluster green with N nodes, Kibana up,
-  Fleet Server up (when enabled), APM reachable, and the OTel demo stack
-  running.
+  Fleet Server up (when enabled), and APM reachable.
 - `site.yml` — the full chain: bootstrap -> certs -> ES -> security
-  bootstrap -> Kibana TLS -> Kibana -> Fleet Server -> OTel
-  demo -> Elastic Agent (all hosts) -> health.
+  bootstrap -> Kibana TLS -> Kibana -> Fleet Server ->
+  Elastic Agent (all hosts) -> health.
 
 `ansible.cfg` sets `roles_path = roles` so role lookup works regardless of
 which playbook (or subdirectory) is invoked.
@@ -332,7 +322,7 @@ ansible all -m ping
 ```
 
 A healthy cluster returns `SUCCESS` for `es-01`/`es-02`/`es-03`, `kibana`,
-`apm-server`, and `otel-demo`. `UNREACHABLE` points at SSH/`ansible_host`
+and `apm-server`. `UNREACHABLE` points at SSH/`ansible_host`
 (wrong IP, VM not up, key not accepted); an inventory/group_vars parsing
 error surfaces here too, before it would otherwise fail deep into a
 playbook run.
