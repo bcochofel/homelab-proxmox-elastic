@@ -26,18 +26,15 @@ Packer (template) -> Terraform (clone VMs + generate inventory) -> Ansible (conf
 ```
 
 Topology: 3 Elasticsearch nodes (es-01/02/03, 192.168.68.30-32), 1 Kibana
-(192.168.68.33 — also runs Fleet Server), 1 APM Server
-(192.168.68.34), and 1 OpenTelemetry demo VM (192.168.68.35, the upstream
-[`open-telemetry/opentelemetry-demo`](https://github.com/open-telemetry/opentelemetry-demo)
-compose stack, reconfigured to export traces to the APM Server instead of
-its bundled Jaeger/Grafana stack). Each Elastic Stack VM (ES, Kibana, APM
+(192.168.68.33 — also runs Fleet Server), and 1 APM Server
+(192.168.68.34). Each Elastic Stack VM (ES, Kibana, APM
 Server) runs a single-container Docker Compose stack; the three ES
-containers form one real cluster across their VMs. Every VM in the topology,
-including the OTel demo one, also runs a standalone Elastic Agent for OS +
-Docker metrics/logs. No Logstash — deliberately out of scope, not just
-deferred (see "Decisions that are deliberate"). `192.168.68.30-39` is
-reserved for this cluster — additional nodes take the next free IP in range
-(`.36`-`.39` currently free).
+containers form one real cluster across their VMs. Every VM in the topology
+also runs a standalone Elastic Agent for OS + Docker metrics/logs. No
+Logstash — deliberately out of scope, not just deferred (see "Decisions
+that are deliberate"). `192.168.68.30-39` is reserved for this cluster —
+additional nodes take the next free IP in range (`.35`-`.39` currently
+free).
 
 ## Decisions that are deliberate (do not "fix" these)
 
@@ -49,37 +46,29 @@ reserved for this cluster — additional nodes take the next free IP in range
 - **Cluster formation is inventory-derived.** Terraform writes node IPs into
   `ansible/inventory/hosts.ini`; the ES `.env` template builds `SEED_HOSTS` and
   `INITIAL_MASTER_NODES` from the `elasticsearch` group. This is why the cluster
-  self-assembles. The generated inventory also carries `[kibana]`,
-  `[apm_server]`, and `[otel_demo]` groups for the other three roles — one
-  group per VM role, all derived the same way.
+  self-assembles. The generated inventory also carries `[kibana]` and
+  `[apm_server]` groups for the other two roles — one group per VM role,
+  all derived the same way.
 - **Every Elastic Agent is Fleet-managed** (Phase 3 steps 2+3, complete).
   The deb package is still pre-installed but disabled by Packer (ADR-8 in
   `packer/ubuntu-26.04/README.md`); the `elastic_agent` role's job is now
   enrollment (`elastic-agent enroll`, marker-file idempotent), not
   rendering a standalone config — there's no standalone mode left, this
   was a deliberate one-way migration (see git history for the old
-  standalone-config role if a rollback is ever needed). es-01/02/03,
-  kibana, and otel-demo share `homelab-agents-policy` (System + Docker
+  standalone-config role if a rollback is ever needed). es-01/02/03 and
+  kibana share `homelab-agents-policy` (System + Docker
   integrations, Fleet's own default inputs); apm-server has its own
   `apm-server-agent-policy` (System + Docker + APM), since Fleet agents
-  belong to exactly one policy and the other five hosts must not run the
+  belong to exactly one policy and the other four hosts must not run the
   APM integration too.
 - **APM ingestion is the Fleet-managed APM integration**, not a
   self-managed `apm-server` container — the standalone `apm_server` role
   and its compose stack are gone. It runs as part of the apm-server host's
   own (now Fleet-managed) Elastic Agent, same host:port (`apm_server_port`,
-  still `8200`) `otel_demo`'s OTLP export already targeted, so that role
-  needed no changes.
+  still `8200`).
 - **No Logstash.** Decided against entirely, not deferred — ingest goes
   straight to Elasticsearch (via Elastic Agent output / ES ingest pipelines).
   Don't propose adding a Logstash role or VM.
-- **The OpenTelemetry demo VM is Ansible-managed like every other node**, not
-  run ad hoc. Ansible checks out the upstream
-  `open-telemetry/opentelemetry-demo` compose project and overrides its OTLP
-  exporter env vars (`OTEL_EXPORTER_OTLP_ENDPOINT` /
-  `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`) to point at the APM Server VM instead
-  of the demo's bundled Jaeger/Grafana/Prometheus stack. It also runs a
-  standalone Elastic Agent like the rest of the fleet.
 - **Only `hosts.ini` is generated.** `ansible/inventory/group_vars/` is
   hand-authored and must never be overwritten by Terraform.
 - **Stack version is pinned in `inventory/group_vars/all.yml`** (`stack_version`), NOT in
@@ -105,7 +94,7 @@ reserved for this cluster — additional nodes take the next free IP in range
   `ubuntu-26.04/`). Each is self-contained: its own `*.pkr.hcl` +
   `README.md` with build steps/ADRs. `packer/README.md` itself stays
   generic — don't add template-specific content there.
-- **All six VMs (ES x3, Kibana, APM Server, OTel demo) clone from the
+- **All five VMs (ES x3, Kibana, APM Server) clone from the
   `ubuntu-26.04` template**, not `ubuntu-24.04`. `ubuntu-24.04/` still exists
   and still builds — it's just no longer what `terraform/variables.tf`'s
   `vm_template` default points at going forward. Same OS-bakes-in-everything
@@ -414,7 +403,7 @@ end: Fleet Server is deployed on the Kibana VM (step 1 — `fleet_bootstrap` +
 `fleet_server` roles, `playbooks/35-fleet-server.yml`, gated on
 `fleet_server_enabled`; its own TLS listener on port 8220 reuses the
 internal `es_certs` CA rather than the Kibana Let's Encrypt cert, since
-every agent already trusts that CA), all six Elastic Agents are
+every agent already trusts that CA), all five Elastic Agents are
 Fleet-managed (step 2 — the `elastic_agent` role's standalone-config path
 is gone, one-way migration), and APM ingestion runs through the
 Fleet-managed APM integration on the apm-server host instead of the old

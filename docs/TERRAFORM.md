@@ -1,7 +1,7 @@
 # Terraform — Elastic observability cluster on Proxmox (bpg/proxmox)
 
 Clones the Packer template (`ubuntu-26.04`, for every VM in the topology)
-into six VMs — es-01/02/03, kibana, apm-server, otel-demo — assigns static
+into five VMs — es-01/02/03, kibana, apm-server — assigns static
 IPs via cloud-init, and generates `../ansible/inventory/hosts.ini`.
 
 | VM | Role | IP | Ansible group |
@@ -9,22 +9,21 @@ IPs via cloud-init, and generates `../ansible/inventory/hosts.ini`.
 | es-01/02/03 | Elasticsearch (master+data) | 192.168.68.30-32 | `elasticsearch` |
 | kibana | Kibana (+ Fleet Server, once TLS lands) | 192.168.68.33 | `kibana` |
 | apm-server | APM Server | 192.168.68.34 | `apm_server` |
-| otel-demo | [OpenTelemetry demo](https://github.com/open-telemetry/opentelemetry-demo), reconfigured to send traces to APM Server | 192.168.68.35 | `otel_demo` |
 
-`192.168.68.30-39` is reserved for this cluster; `.36`-`.39` are free for
+`192.168.68.30-39` is reserved for this cluster; `.35`-`.39` are free for
 future nodes. No Logstash node — deliberately out of scope, not deferred.
 
 - `modules/vm/` — reusable single-VM clone (any role: ES, Kibana, APM
-  Server, OTel demo). Renamed from `modules/elastic_node/` once it stopped
+  Server). Renamed from `modules/elastic_node/` once it stopped
   being Elastic-Stack-exclusive — the module itself never was
   role-specific, it just clones the template with a static IP; role
   differs only in the `tags` passed in and which Ansible group the node
   lands in.
 - `templates/inventory.ini.tftpl` — renders the Ansible inventory (INI
-  format): `[elasticsearch]`, `[kibana]`, `[apm_server]`, `[otel_demo]`
+  format): `[elasticsearch]`, `[kibana]`, `[apm_server]`
   groups, one per VM role. Derives `es_seed_hosts` and
   `es_initial_master_nodes` from the `elasticsearch` group's IPs — that's
-  what lets the ES cluster self-assemble. The other three groups are single
+  what lets the ES cluster self-assemble. The other two groups are single
   hosts with no derived vars of their own (yet).
 - State: HCP Terraform workspace `elastic-observability` (state only —
   Execution Mode is Local, since Proxmox is LAN-only and HCP's infra can't
@@ -172,8 +171,7 @@ TerraformRole -privs "...,VM.Config.CDROM"`.
 block is configured but not currently exercised — this repo's cloud-init
 only sets IP/DNS/user-account via the API (`initialization` block), no
 custom snippet/file upload. Leave it enabled; some cloud-init file
-operations (should one get added later, e.g. for the OTel demo VM) do
-require SSH.
+operations (should one get added to a future node) do require SSH.
 
 ## Security checks and policy enforcement
 

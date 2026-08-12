@@ -1,8 +1,8 @@
 # ----------------------------------------------------------------------------
 # vm — clone one VM from the Packer template, with static-IP cloud-init.
 # Reusable across every VM role in the topology (Elasticsearch, Kibana, APM
-# Server, OTel demo) — role differs only in sizing, tags, and which Ansible
-# inventory group it lands in.
+# Server) — role differs only in sizing, tags, and which Ansible inventory
+# group it lands in.
 # ----------------------------------------------------------------------------
 
 resource "proxmox_virtual_environment_vm" "this" {

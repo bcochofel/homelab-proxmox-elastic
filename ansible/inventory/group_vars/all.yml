@@ -52,12 +52,10 @@ es_transport_port: 9300
 # kibana_port lives in group_vars/kibana.yml instead, alongside the rest of
 # Kibana's own tuning — unlike es_http_port/apm_server_port below, nothing
 # outside the kibana host itself needs to see it.
-# apm_server_port is referenced by otel_demo's role (a different host) to
-# point its OTLP exports at the APM endpoint — now the Fleet-managed APM
-# integration running on the apm-server host's Elastic Agent (Phase 3 step
-# 3), not a standalone apm-server container, but the same host:port either
-# way. Must live here, not in a role's own defaults/, since role defaults
-# aren't visible cross-host.
+# apm_server_port is the Fleet-managed APM integration's listener port,
+# running on the apm-server host's Elastic Agent (Phase 3 step 3), not a
+# standalone apm-server container. Kept here alongside the other
+# cross-host-visible ports rather than a role's own defaults/.
 apm_server_port: 8200
 # fleet_server_port is referenced by the elastic_agent role (hosts: all)
 # to build every agent's enrollment URL — same cross-host-visibility
@@ -65,14 +63,14 @@ apm_server_port: 8200
 # runs on the kibana host.
 fleet_server_port: 8220
 
-# Steps 2+3 (Phase 3): the two agent policies the six Elastic Agents and
+# Steps 2+3 (Phase 3): the two agent policies the five Elastic Agents and
 # the APM integration migrate onto — read by the elastic_agent role
 # (hosts: all) to pick each host's enrollment target, so these need the
-# same cross-host visibility as the ports above. es-01/02/03, kibana,
-# otel-demo share homelab_agents_policy_id (System + Docker, Fleet's own
-# default inputs); apm-server gets its own policy (System + Docker + APM)
-# since Fleet agents belong to exactly one policy and the other five hosts
-# must not run the APM integration too. See docs/ANSIBLE.md.
+# same cross-host visibility as the ports above. es-01/02/03 and kibana
+# share homelab_agents_policy_id (System + Docker, Fleet's own default
+# inputs); apm-server gets its own policy (System + Docker + APM) since
+# Fleet agents belong to exactly one policy and the other four hosts must
+# not run the APM integration too. See docs/ANSIBLE.md.
 homelab_agents_policy_id: homelab-agents-policy
 apm_server_agent_policy_id: apm-server-agent-policy
 

@@ -86,12 +86,6 @@ Roughly in dependency order — later phases build on earlier ones.
     CA/node-cert mismatch above (both certutil invocations now share one
     bind-mounted directory — no more copying the CA in and out of a
     container)
-- [ ] Re-evaluate `elastic/opentelemetry-demo` (EDOT fork) for the `otel_demo`
-      VM once `xpack.security` is on — its EDOT/native-ES-OTLP-ingest modes
-      need an API key our currently-unsecured cluster can't issue; a
-      parallel VM (next free IP, `.36`) is the low-risk way to trial it
-      against the self-managed APM Server without touching the working
-      upstream-demo role
 - [x] Kibana's public URL (`kibana.homelab.bcochofel.com`) served with a
       real Let's Encrypt certificate — separate from the internal
       `es_certs` CA above, since it's the one endpoint humans hit in a

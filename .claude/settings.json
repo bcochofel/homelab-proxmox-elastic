@@ -109,7 +109,8 @@
       "Bash(gh api *)",
       "Bash(curl -fsSL \"https://raw.githubusercontent.com/csimi/elastic-mcp/master/src/tools/kibana.js\")",
       "Bash(curl -fsSL \"https://raw.githubusercontent.com/csimi/elastic-mcp/master/.env.example\")",
-      "Bash(curl -fsSL \"https://raw.githubusercontent.com/csimi/elastic-mcp/master/README.md\")"
+      "Bash(curl -fsSL \"https://raw.githubusercontent.com/csimi/elastic-mcp/master/README.md\")",
+      "Bash(git rm *)"
     ],
     "deny": [
       "Bash(sops -d *)",

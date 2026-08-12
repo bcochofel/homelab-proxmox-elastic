@@ -122,7 +122,7 @@ cp variables.pkrvars.hcl.example variables.auto.pkrvars.hcl   # fill in, gitigno
 packer build .
 ```
 
-All six VMs in the topology (see [Topology](#topology) below) clone from
+All five VMs in the topology (see [Topology](#topology) below) clone from
 this one template. See
 [`packer/ubuntu-26.04/README.md`](packer/ubuntu-26.04/README.md) for what it
 bakes in and why (`packer/ubuntu-24.04/` still exists and builds, but is no
@@ -140,8 +140,8 @@ terraform plan    # review before applying
 terraform apply
 ```
 
-This clones the Packer template into all six VMs (es-01/02/03, kibana,
-apm-server, otel-demo), assigns static IPs, and writes
+This clones the Packer template into all five VMs (es-01/02/03, kibana,
+apm-server), assigns static IPs, and writes
 `ansible/inventory/hosts.ini` with one group per role — see
 [`docs/TERRAFORM.md`](docs/TERRAFORM.md), including the `pveum` commands to
 create the `terraform@pve` token if you haven't already.
@@ -155,7 +155,7 @@ ansible-galaxy collection install -r requirements.yml
 ansible-playbook playbooks/site.yml
 ```
 
-Runs bootstrap -> Elasticsearch -> Kibana -> Fleet Server -> OTel demo ->
+Runs bootstrap -> Elasticsearch -> Kibana -> Fleet Server ->
 Elastic Agent (all hosts, Fleet enrollment — this is also what brings the
 Fleet-managed APM integration online on the apm-server host) -> health
 check. See [`docs/ANSIBLE.md`](docs/ANSIBLE.md) for the role/playbook
@@ -206,18 +206,14 @@ at its checked-in `false`.
 | es-03      | 2    | 8 GB | 60 G | Elasticsearch (master+data)    | 192.168.68.32 |
 | kibana     | 2    | 4 GB | 30 G | Kibana + Fleet Server          | 192.168.68.33 |
 | apm-server | 2    | 2 GB | 20 G | APM (Fleet-managed integration)| 192.168.68.34 |
-| otel-demo  | 2    | 4 GB | 30 G | OpenTelemetry demo             | 192.168.68.35 |
 
 `192.168.68.30-39` is reserved for this cluster; additional nodes should take
-the next free IP in that range (`.36`-`.39` currently free). No Logstash node
+the next free IP in that range (`.35`-`.39` currently free). No Logstash node
 — deliberately out of scope.
 
 Each ES/Kibana VM runs a single-container Docker Compose stack. The three
 ES containers form one real multi-node cluster across the VMs. Heap is
-4 GB/node (≤50% RAM). `otel-demo` runs the upstream
-[open-telemetry/opentelemetry-demo](https://github.com/open-telemetry/opentelemetry-demo)
-compose stack, reconfigured to export traces to the APM endpoint instead of
-its bundled Jaeger/Grafana/Prometheus stack. Every VM in the topology runs
+4 GB/node (≤50% RAM). Every VM in the topology runs
 a Fleet-managed Elastic Agent for OS + Docker metrics/logs — the
 apm-server host's agent additionally runs the APM integration, which is
 what actually ingests those traces (no separate `apm-server` container).
@@ -234,7 +230,6 @@ what actually ingests those traces (no separate `apm-server` container).
   the apm-server host's Elastic Agent, not a standalone container. Not
   TLS-fronted itself; only its connection *to* Elasticsearch is (via
   Fleet's own output config)
-- OTel demo frontend: `http://192.168.68.35:8080`
 
 Elasticsearch presents a self-signed cert from this cluster's own CA
 (`ansible/.certs/ca.crt` on the machine that ran the Ansible rollout, not
@@ -245,8 +240,6 @@ or pass `--cacert ansible/.certs/ca.crt` (or `-k` to skip verification).
 
 Login as `elastic` — password is `ELASTIC_PASSWORD` in `secrets.yaml`
 (SOPS-encrypted; decrypt with your own age key, or ask whoever holds it).
-Once the cluster is green, the OTel demo's `load-generator` keeps producing
-live traffic continuously, so there's always fresh data to look at.
 
 Elastic reshuffles Kibana's left nav across versions and even lets each
 space pick "classic" vs. a solution-specific view — this project has
@@ -258,11 +251,11 @@ works:
 
 - **Traces/APM data** — `traces-apm-default`, plus per-service
   `logs-apm.app.*` (application logs) and `metrics-apm.*` (throughput,
-  latency). Covers every otel-demo microservice (`checkout`, `cart`,
-  `frontend`, `payment`, `recommendation`, etc.) and `otelcol_contrib`
-  itself. If your nav has a dedicated APM/Applications app, it visualizes
-  these same data streams (service list, trace waterfalls, service map)
-  instead of browsing them raw in Discover.
+  latency), populated by whatever APM/OTLP clients send data to the
+  apm-server host's Elastic Agent. If your nav has a dedicated
+  APM/Applications app, it visualizes these same data streams (service
+  list, trace waterfalls, service map) instead of browsing them raw in
+  Discover.
 - **Logs** — `logs-*` data view. Key datasets: `system.syslog` (every VM's
   OS logs), `docker.container_logs` (every container's stdout/stderr),
   `apm.app.*`, `apm.error` (captured exceptions). Filter on
@@ -310,7 +303,7 @@ sometimes does.
   `apm-server` container anymore.
 - **No Logstash:** decided against entirely, not deferred. Ingest goes
   straight to Elasticsearch.
-- **Template:** all six VMs clone from the `ubuntu-26.04` Packer template.
+- **Template:** all five VMs clone from the `ubuntu-26.04` Packer template.
 
 ## Documentation
 

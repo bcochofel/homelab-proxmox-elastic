@@ -6,7 +6,7 @@ profile: basic
 # a shorter, deliberate convention documented throughout CLAUDE.md,
 # inventory/group_vars/, and the role templates: es_*/apm_server_*/etc. for
 # public vars (chosen so cross-host references like apm_server_port read
-# naturally from the otel_demo role), and a leading underscore for
+# naturally from other roles), and a leading underscore for
 # internal/registered facts (_health, _dpkg_arch, ...). Renaming everything
 # to satisfy this rule would be a large, purely cosmetic, cross-cutting
 # change across docs and templates with no functional benefit.

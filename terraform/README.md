@@ -25,7 +25,6 @@ See [`../docs/TERRAFORM.md`](../docs/TERRAFORM.md).
 | <a name="module_apm_server"></a> [apm\_server](#module\_apm\_server) | ./modules/vm | n/a |
 | <a name="module_es"></a> [es](#module\_es) | ./modules/vm | n/a |
 | <a name="module_kibana"></a> [kibana](#module\_kibana) | ./modules/vm | n/a |
-| <a name="module_otel_demo"></a> [otel\_demo](#module\_otel\_demo) | ./modules/vm | n/a |
 
 ## Resources
 
@@ -48,7 +47,6 @@ See [`../docs/TERRAFORM.md`](../docs/TERRAFORM.md).
 | <a name="input_kibana_node"></a> [kibana\_node](#input\_kibana\_node) | Kibana node definition | <pre>object({<br/>    name    = string<br/>    vmid    = number<br/>    ip_cidr = string<br/>    cores   = number<br/>    memory  = number<br/>    disk    = number<br/>  })</pre> | <pre>{<br/>  "cores": 2,<br/>  "disk": 60,<br/>  "ip_cidr": "192.168.68.33/22",<br/>  "memory": 4096,<br/>  "name": "kibana",<br/>  "vmid": 9510<br/>}</pre> | no |
 | <a name="input_nameserver"></a> [nameserver](#input\_nameserver) | DNS nameserver for cloud-init | `string` | `"192.168.68.2"` | no |
 | <a name="input_network_bridge"></a> [network\_bridge](#input\_network\_bridge) | Proxmox network bridge | `string` | `"vmbr0"` | no |
-| <a name="input_otel_demo_node"></a> [otel\_demo\_node](#input\_otel\_demo\_node) | OpenTelemetry demo node definition (upstream opentelemetry-demo compose stack) | <pre>object({<br/>    name    = string<br/>    vmid    = number<br/>    ip_cidr = string<br/>    cores   = number<br/>    memory  = number<br/>    disk    = number<br/>  })</pre> | <pre>{<br/>  "cores": 4,<br/>  "disk": 60,<br/>  "ip_cidr": "192.168.68.35/22",<br/>  "memory": 8192,<br/>  "name": "otel-demo",<br/>  "vmid": 9530<br/>}</pre> | no |
 | <a name="input_proxmox_api_token"></a> [proxmox\_api\_token](#input\_proxmox\_api\_token) | API token, form user@realm!tokenid=secret | `string` | n/a | yes |
 | <a name="input_proxmox_endpoint"></a> [proxmox\_endpoint](#input\_proxmox\_endpoint) | Proxmox API endpoint, e.g. https://192.168.68.10:8006/ | `string` | n/a | yes |
 | <a name="input_proxmox_insecure"></a> [proxmox\_insecure](#input\_proxmox\_insecure) | Skip TLS verification (homelab self-signed cert) | `bool` | `true` | no |
@@ -68,5 +66,4 @@ See [`../docs/TERRAFORM.md`](../docs/TERRAFORM.md).
 | <a name="output_inventory_path"></a> [inventory\_path](#output\_inventory\_path) | Path to the generated Ansible inventory |
 | <a name="output_kibana"></a> [kibana](#output\_kibana) | Kibana node details |
 | <a name="output_kibana_url"></a> [kibana\_url](#output\_kibana\_url) | Kibana URL once provisioned (Let's Encrypt TLS, see docs/ANSIBLE.md) |
-| <a name="output_otel_demo"></a> [otel\_demo](#output\_otel\_demo) | OpenTelemetry demo node details |
 <!-- END_TF_DOCS -->
