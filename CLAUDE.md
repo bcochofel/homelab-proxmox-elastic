@@ -197,28 +197,25 @@ Always `plan` and show output; never `apply` unprompted; never `destroy`.
 
 ## Command permissions (.claude/settings.json)
 
-Committed, shared policy — distinct from `.claude/settings.local.json`
-(gitignored, per-session allowlist). Philosophy: local, read-only/validating
-checks run freely; anything that actually writes infrastructure requires a
-human click every time, for now — the plan is to move those write ops (`packer
-build`, `terraform apply`, `ansible-playbook`) behind a GitHub Actions runner
-later (see "Agent-tooling rollout," step 3), at which point the agent won't hold the
-write credential at all.
+`.claude/settings.json` is committed and deliberately minimal: only the
+security-critical `deny` and `ask` rules, nothing else — this is the one
+policy every contributor and every agent session must share, so it stays
+small enough to actually review in a PR diff. The read-only/validating
+convenience allowlist (`terraform validate`, `packer fmt`, `ansible-lint`,
+`git status`, the non-mutating Makefile targets, etc.) lives entirely in
+`.claude/settings.local.json` instead (gitignored, per-machine) — it's not
+shared policy, just a growing local cache of "yes, always allow this" that
+each contributor (or agent session) accumulates for themselves as they hit
+prompts. A fresh clone starts with no local allowlist and re-approves things
+as it goes; that's expected, not a bug.
 
-- **Allow (no prompt):** `pre-commit run`/`install`; `terraform
-  validate/fmt/plan/init/show/output/providers/version/graph/state`; `packer
-  validate/init/fmt/version`; `ansible-lint`, `ansible-inventory`,
-  `ansible-galaxy collection list` (both bare and via `.venv/bin/`, since
-  Ansible only exists inside the virtualenv now), and the known-safe exact
-  `ansible-playbook playbooks/site.yml --check`/`--syntax-check` invocations in both
-  forms (only those exact strings — flags aren't wildcarded more broadly,
-  since prefix-only matching can't safely tell "check" from a real run once
-  the args reorder); read-only `git` (`status`, `diff`, `log`, `show`,
-  `branch`, `remote -v`); the non-mutating Makefile targets (`help`, `debug`,
-  `check`, `install`, `install-binaries`, `clean`, `direnv-allow`,
-  `pre-commit-install`, `packer-init`, `tf-init`, `venv`, `ansible-install`,
-  `ansible-deps` — none of these touch Proxmox, and there are no Makefile
-  targets for the write ops to begin with).
+Philosophy: read-only/validating checks are safe to blanket-allow (locally);
+anything that actually writes infrastructure requires a human click every
+time, for now — the plan is to move those write ops (`packer build`,
+`terraform apply`, `ansible-playbook`) behind a GitHub Actions runner later
+(see "Agent-tooling rollout," step 3), at which point the agent won't hold
+the write credential at all.
+
 - **Ask (human approval every time):** `packer build`, `terraform apply`,
   any other `ansible-playbook` invocation.
 - **Deny outright:** `terraform destroy`, `sops -d`/`sops --decrypt`, and
