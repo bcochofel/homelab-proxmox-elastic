@@ -8,7 +8,7 @@
 
 # VM Template Settings
 vm_id          = 9001
-vm_name        = "ubuntu-26.04-template"
+vm_name        = "ubuntu-26.04-elastic"
 vm_description = "Ubuntu 26.04 with Docker and LVM"
 disk_size      = "60G"
 vm_cpu_cores   = 2

@@ -33,7 +33,7 @@ variable "target_node" {
 variable "vm_template" {
   type        = string
   description = "Name of the Packer-built template to clone"
-  default     = "ubuntu-26.04-template"
+  default     = "ubuntu-26.04-elastic"
 }
 
 # --------------------------------------------------------

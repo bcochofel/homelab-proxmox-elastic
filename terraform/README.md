@@ -56,7 +56,7 @@ See [`../docs/TERRAFORM.md`](../docs/TERRAFORM.md).
 | <a name="input_searchdomain"></a> [searchdomain](#input\_searchdomain) | DNS search domain | `string` | `"lab.local"` | no |
 | <a name="input_sshkeys"></a> [sshkeys](#input\_sshkeys) | Newline-delimited SSH public keys for the cloud-init user | `string` | n/a | yes |
 | <a name="input_target_node"></a> [target\_node](#input\_target\_node) | Proxmox node name to place VMs on (your MS-01) | `string` | `"pve"` | no |
-| <a name="input_vm_template"></a> [vm\_template](#input\_vm\_template) | Name of the Packer-built template to clone | `string` | `"ubuntu-26.04-template"` | no |
+| <a name="input_vm_template"></a> [vm\_template](#input\_vm\_template) | Name of the Packer-built template to clone | `string` | `"ubuntu-26.04-elastic"` | no |
 
 ## Outputs
 
