@@ -20,3 +20,10 @@ es_bootstrap_memory_lock: true
 # checked-in false is already correct for steady state. Running with false
 # against data volumes that have never formed a cluster will not bootstrap it.
 es_bootstrap_cluster: false
+
+# Data Stream Lifecycle retention applied to logs-*/metrics-*/traces-apm*
+# by the es_data_lifecycle role (playbooks/55-data-retention.yml) — the
+# actual bound on disk growth, on top of the data disk being sized
+# generously (see packer/ubuntu-26.04/README.md's ADR-9). Any value
+# Elasticsearch's data_retention accepts (e.g. "7d", "30d").
+es_data_retention: "7d"

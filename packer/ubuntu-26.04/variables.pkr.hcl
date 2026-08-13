@@ -81,8 +81,8 @@ variable "scsi_controller" {
 
 variable "disk_size" {
   type        = string
-  description = "Disk size"
-  default     = "60G"
+  description = "OS disk size — Elasticsearch data no longer lives here (see the elastic_base_dir/data-disk note below and ADR-9 in this template's README); this only needs to fit the OS, packages, Trivy's DB, and the Elastic Agent binary"
+  default     = "40G"
 }
 
 variable "storage_pool" {
@@ -154,7 +154,7 @@ EOT
 variable "hostname" {
   type        = string
   description = "System hostname"
-  default     = "ubuntu-template"
+  default     = "ubuntu-elastic"
 }
 
 variable "timezone" {
@@ -275,20 +275,18 @@ variable "ntp_servers" {
 # --------------------------------------------------------
 # Elastic Stack host requirements
 # Baked in at image-build time so Ansible only has to render
-# docker-compose.yml/.env and run `docker compose up`. Keep these in sync
-# with ansible/group_vars/all.yml (vm_max_map_count, elastic_base_dir) —
-# changing either side requires a template rebuild.
+# docker-compose.yml/.env and run `docker compose up`. Keep in sync with
+# ansible/inventory/group_vars/all.yml's vm_max_map_count — changing either
+# side requires a template rebuild. elastic_base_dir used to live here too
+# (a Packer-baked /opt/elastic directory) — moved to Terraform + Ansible's
+# data_disk role instead (see ADR-9 in this template's README), since it's
+# now a mount point for a per-clone data disk that doesn't exist yet at
+# template-build time.
 # --------------------------------------------------------
 variable "vm_max_map_count" {
   type        = number
   description = "vm.max_map_count kernel setting (Elasticsearch bootstrap requirement)"
   default     = 262144
-}
-
-variable "elastic_base_dir" {
-  type        = string
-  description = "Base directory for Elastic Stack docker-compose projects"
-  default     = "/opt/elastic"
 }
 
 # Docker

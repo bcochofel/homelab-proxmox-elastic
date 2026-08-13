@@ -28,7 +28,23 @@ es_security_enabled: true
 # VMs are 8 GB -> 4 GB heap.
 es_heap_size: "4g"
 
-# Where compose projects live on each VM
+# Second, Terraform-provisioned disk (scsi1) — not part of the Packer
+# template, provisioned fresh per VM (see terraform/modules/vm's data_disk
+# variable) and mounted here by the data_disk role before anything else
+# runs. /dev/sdb assumes scsi0 (the OS/template disk) enumerates as /dev/sda
+# and scsi1 right after it — true for this VM shape (single virtio-scsi-
+# single controller, two disks, nothing else attached). See
+# packer/ubuntu-26.04/README.md's ADR-9 for why this disk exists.
+data_disk_device: /dev/sdb
+data_disk_mount_point: /opt
+
+# Docker's data-root, redirected onto the data disk above — this is what
+# actually relocates the `esdata` named Docker volume (and every other
+# container/image) off the small, fixed OS disk.
+docker_data_root: "{{ data_disk_mount_point }}/docker-data"
+
+# Where compose projects live on each VM — same disk as docker_data_root
+# above (data_disk_mount_point), just a different subdirectory.
 elastic_base_dir: /opt/elastic
 
 # Where the CA cert lives on every host once TLS is on (es_certs role

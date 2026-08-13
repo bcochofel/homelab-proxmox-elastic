@@ -9,11 +9,23 @@ Terraform.
 
 Roles:
 
+- `data_disk` — runs first (`00-bootstrap.yml`, ahead of `common`): formats
+  and mounts the second, Terraform-provisioned disk (`data_disk_device`,
+  `/dev/sdb`) at `/opt` (`data_disk_mount_point`), then redirects Docker's
+  data-root (`/etc/docker/daemon.json`) into a subdirectory there
+  (`docker_data_root`). This is what actually gets Elasticsearch's data off
+  the small, fixed OS disk — see
+  [`../packer/ubuntu-26.04/README.md`](../packer/ubuntu-26.04/README.md)'s
+  ADR-9. Genuinely can't live in Packer the way `vm.max_map_count`/ulimits
+  can: this disk doesn't exist until Terraform attaches it, per clone.
+  Flushes handlers immediately (`ansible.builtin.meta: flush_handlers`) so
+  Docker is already running against the new data-root before `common`'s
+  Docker check or any compose role runs.
 - `common` — preflight checks only (OS/version, Docker + Compose plugin
   present). It has zero involvement in OS configuration — no variables for
-  `vm.max_map_count`, ulimits, or the `/opt/elastic` base directory exist on
-  the Ansible side at all. All of that is baked into the Packer template
-  (`ubuntu-26.04`, used by every VM in the topology now). See
+  `vm.max_map_count` or ulimits exist on the Ansible side at all. All of
+  that is baked into the Packer template (`ubuntu-26.04`, used by every VM
+  in the topology now). See
   [`../packer/ubuntu-26.04/README.md`](../packer/ubuntu-26.04/README.md).
 - `elasticsearch` — identical compose + per-node `.env`; rolls one node at a time.
 - `kibana` — Kibana compose stack pointed at all ES nodes.
@@ -126,6 +138,11 @@ Roles:
   `FLEET_URL` (+ `FLEET_CA` to trust its own cert) set too; without them,
   enrollment fails outright (`"url is required when a certificate is
   provided"`), confirmed live.
+- `es_data_lifecycle` — runs once against `elasticsearch[0]`, after Fleet
+  Server + every Elastic Agent are enrolled: applies a Data Stream Lifecycle
+  retention policy (`es_data_retention`, `inventory/group_vars/
+  elasticsearch.yml`, default `7d`) to `logs-*`/`metrics-*`/`traces-apm*` via
+  `PUT _data_stream/.../_lifecycle`. See "Data retention" below.
 
 ## TLS + auth (Phase 2)
 
@@ -272,7 +289,8 @@ policy's input-key naming.
 Playbooks (all under `playbooks/`, run via `site.yml`'s `import_playbook`
 chain):
 
-- `00-bootstrap.yml` — preflight (`common` role), `hosts: all`.
+- `00-bootstrap.yml` — data disk mount + Docker data-root redirect
+  (`data_disk` role), then preflight (`common` role), `hosts: all`.
 - `05-elasticsearch-certs.yml` — TLS cert generation/distribution
   (`es_certs` role), `hosts: all`. Unconditional, inert until
   `es_security_enabled` is true.
@@ -289,11 +307,14 @@ chain):
 - `50-elastic-agent.yml` — Elastic Agent enrollment, `hosts: all` (includes
   the apm-server host, which is what actually brings the Fleet-managed APM
   integration online there).
+- `55-data-retention.yml` — 7-day Data Stream Lifecycle retention
+  (`es_data_lifecycle` role), `hosts: elasticsearch[0]`, after agents have
+  enrolled so the wildcard has data streams to match.
 - `99-healthcheck.yml` — asserts cluster green with N nodes, Kibana up,
   Fleet Server up (when enabled), and APM reachable.
 - `site.yml` — the full chain: bootstrap -> certs -> ES -> security
   bootstrap -> Kibana TLS -> Kibana -> Fleet Server ->
-  Elastic Agent (all hosts) -> health.
+  Elastic Agent (all hosts) -> data retention -> health.
 
 `ansible.cfg` sets `roles_path = roles` so role lookup works regardless of
 which playbook (or subdirectory) is invoked.
@@ -326,6 +347,31 @@ and `apm-server`. `UNREACHABLE` points at SSH/`ansible_host`
 (wrong IP, VM not up, key not accepted); an inventory/group_vars parsing
 error surfaces here too, before it would otherwise fail deep into a
 playbook run.
+
+## Data retention
+
+`55-data-retention.yml` (`es_data_lifecycle` role) applies a **Data Stream
+Lifecycle** retention policy — `PUT _data_stream/logs-*,metrics-*,
+traces-apm*/_lifecycle` with `{"data_retention": "{{ es_data_retention
+}}"}` — rather than editing Fleet's own ILM policies. Deliberate choice:
+Data Stream Lifecycle is a separate, simpler mechanism that Fleet doesn't
+manage or overwrite on package upgrades, so it's the more upgrade-safe place
+to set this. `es_data_retention` (default `7d`) lives in
+`inventory/group_vars/elasticsearch.yml` alongside the rest of the ES
+tuning knobs.
+
+This is the actual bound on disk growth — see
+[`../packer/ubuntu-26.04/README.md`](../packer/ubuntu-26.04/README.md)'s
+ADR-9 for why the data disk is sized generously in the first place (a big
+disk alone doesn't cap retention, it just delays the problem).
+
+Runs after `50-elastic-agent.yml` so the wildcard has data streams to match.
+On a from-scratch bootstrap, agents may have enrolled but not shipped their
+first document yet — the role tolerates a `404` (no matching data streams)
+as a no-op rather than failing the playbook; the next `site.yml` run picks
+up whatever exists by then. Idempotent and safe to rerun every execution,
+which is also what covers any new data streams later (e.g. Phase 4's
+OSQuery/Defend integrations) without editing this role.
 
 ## Bootstrap lifecycle
 

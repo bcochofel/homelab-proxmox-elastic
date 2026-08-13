@@ -4,3 +4,11 @@
 # fleet_server_enabled, fleet_server_policy_id, and fleet_server_port are
 # cross-role shared vars — defined in inventory/group_vars/kibana.yml, not
 # here, since the fleet_server role also reads them.
+
+# ansible.builtin.uri's own default (30s) is too short for Fleet's
+# mutating endpoints (agent policy / package policy / package-install
+# creation) — Kibana does real work server-side on these (e.g. installing
+# an integration package) and can exceed 30s, especially on first bootstrap
+# of a fresh cluster. Confirmed empirically: "Create the Fleet Server agent
+# policy" timed out with a read timeout at the 30s default.
+fleet_bootstrap_api_timeout: 120

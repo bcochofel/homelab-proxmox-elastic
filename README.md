@@ -7,6 +7,23 @@ pipeline:
 Packer (template)  ->  Terraform (clone VMs + generate inventory)  ->  Ansible (configure)
 ```
 
+## Homelab architecture
+
+This repo is one of three that make up the homelab:
+
+- **`homelab-proxmox-elastic`** (this repo) — the Elastic observability
+  stack: Elasticsearch, Kibana, Fleet Server, and APM Server.
+- **[`homelab-proxmox-core`](https://github.com/bcochofel/homelab-proxmox-core)**
+  — edge routing and name resolution: the Caddy reverse proxy and the
+  CoreDNS + Pihole DNS pair every VM in the homelab (including this repo's)
+  resolves against.
+- **[`homelab-proxmox-k3s`](https://github.com/bcochofel/homelab-proxmox-k3s)**
+  — a K3s cluster managed via ArgoCD (GitOps), with Traefik as its
+  in-cluster ingress. It runs the OpenTelemetry demo, which feeds its
+  traces/metrics/logs to this repo's APM Server rather than a bundled
+  Jaeger/Prometheus/OpenSearch/Grafana stack of its own — so that cluster is
+  part of this observability architecture, not a second, separate one.
+
 ## Quickstart
 
 Get a green Elastic Stack cluster running on Proxmox, end to end. See
@@ -199,17 +216,24 @@ at its checked-in `false`.
 
 ## Topology
 
-| VM         | vCPU | RAM  | Disk | Role                           | IP            |
-| ---------- | ---- | ---- | ---- | ------------------------------ | ------------- |
-| es-01      | 2    | 8 GB | 60 G | Elasticsearch (master+data)    | 192.168.68.30 |
-| es-02      | 2    | 8 GB | 60 G | Elasticsearch (master+data)    | 192.168.68.31 |
-| es-03      | 2    | 8 GB | 60 G | Elasticsearch (master+data)    | 192.168.68.32 |
-| kibana     | 2    | 4 GB | 30 G | Kibana + Fleet Server          | 192.168.68.33 |
-| apm-server | 2    | 2 GB | 20 G | APM (Fleet-managed integration)| 192.168.68.34 |
+| VM         | vCPU | RAM  | OS disk | Data disk | Role                           | IP            |
+| ---------- | ---- | ---- | ------- | --------- | ------------------------------ | ------------- |
+| es-01      | 2    | 8 GB | 40 G    | 100 G     | Elasticsearch (master+data)    | 192.168.68.30 |
+| es-02      | 2    | 8 GB | 40 G    | 100 G     | Elasticsearch (master+data)    | 192.168.68.31 |
+| es-03      | 2    | 8 GB | 40 G    | 100 G     | Elasticsearch (master+data)    | 192.168.68.32 |
+| kibana     | 2    | 4 GB | 40 G    | 20 G      | Kibana + Fleet Server          | 192.168.68.33 |
+| apm-server | 2    | 2 GB | 40 G    | 20 G      | APM (Fleet-managed integration)| 192.168.68.34 |
 
 `192.168.68.30-39` is reserved for this cluster; additional nodes should take
 the next free IP in that range (`.35`-`.39` currently free). No Logstash node
 — deliberately out of scope.
+
+Every VM has two disks: a small, fixed OS disk (Packer template, LVM) and a
+second, per-role Terraform-provisioned disk mounted at `/opt`, which is where
+Docker's data-root (and so every ES node's actual data) lives — see
+[Design decisions](#design-decisions) below for why. DNS resolution uses the
+homelab's CoreDNS + Pihole pair (`homelab-proxmox-core`), both set as
+resolvers for redundancy.
 
 Each ES/Kibana VM runs a single-container Docker Compose stack. The three
 ES containers form one real multi-node cluster across the VMs. Heap is
@@ -304,6 +328,16 @@ sometimes does.
 - **No Logstash:** decided against entirely, not deferred. Ingest goes
   straight to Elasticsearch.
 - **Template:** all five VMs clone from the `ubuntu-26.04` Packer template.
+- **Disk layout:** a small, fixed OS disk (Packer/LVM) plus a second,
+  per-role Terraform-provisioned data disk mounted at `/opt`, with Docker's
+  data-root redirected there — the OS disk's LVM `root` volume was
+  previously the real ceiling on Elasticsearch data growth, independent of
+  how large the overall Proxmox disk was. See
+  `packer/ubuntu-26.04/README.md`'s ADR-9.
+- **Data retention:** a 7-day Data Stream Lifecycle policy on
+  `logs-*`/`metrics-*`/`traces-apm*` bounds disk growth explicitly, rather
+  than relying on disk size alone. See `docs/ANSIBLE.md`'s "Data retention"
+  section.
 
 ## Documentation
 

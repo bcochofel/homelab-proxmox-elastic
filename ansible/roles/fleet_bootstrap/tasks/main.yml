@@ -36,6 +36,7 @@
   ansible.builtin.uri:
     url: "https://127.0.0.1:{{ kibana_port }}/api/fleet/setup"
     method: POST
+    timeout: "{{ fleet_bootstrap_api_timeout }}"
     validate_certs: false
     user: elastic
     password: "{{ es_elastic_password }}"
@@ -64,6 +65,7 @@
   ansible.builtin.uri:
     url: "https://127.0.0.1:{{ kibana_port }}/api/fleet/outputs/fleet-default-output"
     method: PUT
+    timeout: "{{ fleet_bootstrap_api_timeout }}"
     validate_certs: false
     user: elastic
     password: "{{ es_elastic_password }}"
@@ -102,6 +104,7 @@
   ansible.builtin.uri:
     url: "https://127.0.0.1:{{ kibana_port }}/api/fleet/agent_policies?sys_monitoring=false"
     method: POST
+    timeout: "{{ fleet_bootstrap_api_timeout }}"
     validate_certs: false
     user: elastic
     password: "{{ es_elastic_password }}"
@@ -129,6 +132,7 @@
   ansible.builtin.uri:
     url: "https://127.0.0.1:{{ kibana_port }}/api/fleet/agent_policies/{{ fleet_server_policy_id }}"
     method: PUT
+    timeout: "{{ fleet_bootstrap_api_timeout }}"
     validate_certs: false
     user: elastic
     password: "{{ es_elastic_password }}"
@@ -159,6 +163,7 @@
   ansible.builtin.uri:
     url: "https://127.0.0.1:{{ kibana_port }}/api/fleet/fleet_server_hosts"
     method: POST
+    timeout: "{{ fleet_bootstrap_api_timeout }}"
     validate_certs: false
     user: elastic
     password: "{{ es_elastic_password }}"
@@ -192,6 +197,7 @@
   ansible.builtin.uri:
     url: "https://127.0.0.1:{{ kibana_port }}/api/fleet/agent_policies?sys_monitoring=false"
     method: POST
+    timeout: "{{ fleet_bootstrap_api_timeout }}"
     validate_certs: false
     user: elastic
     password: "{{ es_elastic_password }}"
@@ -212,6 +218,7 @@
   ansible.builtin.uri:
     url: "https://127.0.0.1:{{ kibana_port }}/api/fleet/agent_policies/{{ homelab_agents_policy_id }}"
     method: PUT
+    timeout: "{{ fleet_bootstrap_api_timeout }}"
     validate_certs: false
     user: elastic
     password: "{{ es_elastic_password }}"
@@ -242,6 +249,7 @@
   ansible.builtin.uri:
     url: "https://127.0.0.1:{{ kibana_port }}/api/fleet/agent_policies?sys_monitoring=false"
     method: POST
+    timeout: "{{ fleet_bootstrap_api_timeout }}"
     validate_certs: false
     user: elastic
     password: "{{ es_elastic_password }}"
@@ -262,6 +270,7 @@
   ansible.builtin.uri:
     url: "https://127.0.0.1:{{ kibana_port }}/api/fleet/agent_policies/{{ apm_server_agent_policy_id }}"
     method: PUT
+    timeout: "{{ fleet_bootstrap_api_timeout }}"
     validate_certs: false
     user: elastic
     password: "{{ es_elastic_password }}"
@@ -298,6 +307,7 @@
   ansible.builtin.uri:
     url: "https://127.0.0.1:{{ kibana_port }}/api/fleet/epm/packages/{{ item.item }}/{{ item.json.item.version }}"
     method: POST
+    timeout: "{{ fleet_bootstrap_api_timeout }}"
     validate_certs: false
     user: elastic
     password: "{{ es_elastic_password }}"
@@ -345,6 +355,7 @@
   ansible.builtin.uri:
     url: "https://127.0.0.1:{{ kibana_port }}/api/fleet/package_policies"
     method: POST
+    timeout: "{{ fleet_bootstrap_api_timeout }}"
     validate_certs: false
     user: elastic
     password: "{{ es_elastic_password }}"
@@ -380,6 +391,7 @@
   ansible.builtin.uri:
     url: "https://127.0.0.1:{{ kibana_port }}/api/fleet/package_policies"
     method: POST
+    timeout: "{{ fleet_bootstrap_api_timeout }}"
     validate_certs: false
     user: elastic
     password: "{{ es_elastic_password }}"
@@ -415,6 +427,7 @@
   ansible.builtin.uri:
     url: "https://127.0.0.1:{{ kibana_port }}/api/fleet/package_policies"
     method: POST
+    timeout: "{{ fleet_bootstrap_api_timeout }}"
     validate_certs: false
     user: elastic
     password: "{{ es_elastic_password }}"
@@ -450,6 +463,7 @@
   ansible.builtin.uri:
     url: "https://127.0.0.1:{{ kibana_port }}/api/fleet/package_policies"
     method: POST
+    timeout: "{{ fleet_bootstrap_api_timeout }}"
     validate_certs: false
     user: elastic
     password: "{{ es_elastic_password }}"
@@ -485,6 +499,7 @@
   ansible.builtin.uri:
     url: "https://127.0.0.1:{{ kibana_port }}/api/fleet/package_policies"
     method: POST
+    timeout: "{{ fleet_bootstrap_api_timeout }}"
     validate_certs: false
     user: elastic
     password: "{{ es_elastic_password }}"
@@ -530,6 +545,7 @@
   ansible.builtin.uri:
     url: "https://127.0.0.1:{{ es_http_port }}/_security/service/elastic/fleet-server/credential/token/fleet-server-token"
     method: POST
+    timeout: "{{ fleet_bootstrap_api_timeout }}"
     user: elastic
     password: "{{ es_elastic_password }}"
     force_basic_auth: true
@@ -566,6 +582,7 @@
   ansible.builtin.uri:
     url: "https://127.0.0.1:{{ kibana_port }}/api/fleet/enrollment_api_keys"
     method: POST
+    timeout: "{{ fleet_bootstrap_api_timeout }}"
     validate_certs: false
     user: elastic
     password: "{{ es_elastic_password }}"
@@ -602,6 +619,7 @@
   ansible.builtin.uri:
     url: "https://127.0.0.1:{{ kibana_port }}/api/fleet/enrollment_api_keys"
     method: POST
+    timeout: "{{ fleet_bootstrap_api_timeout }}"
     validate_certs: false
     user: elastic
     password: "{{ es_elastic_password }}"

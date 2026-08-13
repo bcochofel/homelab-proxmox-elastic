@@ -6,10 +6,13 @@ support, no custom CA import, no security-scanning tooling (AIDE, rkhunter,
 chkrootkit, lynis, auditd). SSH hardening and unattended-upgrades are still
 configured via autoinstall — see ADR-3 below for why the rest was cut.
 
-`vm.max_map_count`, memlock/nofile ulimits, and the `/opt/elastic` compose
-base directory are baked in here via cloud-init (`http/user-data.yml.tpl`),
-tunable through the `vm_max_map_count`/`elastic_base_dir` variables. Changing
-either value means rebuilding the template.
+`vm.max_map_count` and memlock/nofile ulimits are baked in here via
+cloud-init (`http/user-data.yml.tpl`), tunable through the
+`vm_max_map_count` variable — changing it means rebuilding the template.
+The `/opt/elastic` compose base directory is **not** baked in here anymore
+(see ADR-9): it lives on a second, Terraform-provisioned disk that Ansible's
+`data_disk` role mounts at `/opt` after cloning, since that disk doesn't
+exist yet at template-build time.
 
 ## Build
 
@@ -76,22 +79,25 @@ docker-compose projects to live in. The original design put this in an
 Ansible `common` role so it stayed tunable without a Packer rebuild.
 
 **Decision.** Moved to cloud-init in `http/user-data.yml.tpl`:
-`/etc/sysctl.d/90-elasticsearch.conf`, `/etc/security/limits.d/90-elasticsearch.conf`,
-and `mkdir -p ${elastic_base_dir}` all run at first boot, driven by the
-`vm_max_map_count`/`elastic_base_dir` Packer variables. Ansible's `common`
-role has zero involvement in OS configuration — no `vm_max_map_count`
-variable exists on the Ansible side at all, not even to verify it. It only
-checks Docker and the Compose plugin are present before the ES/kibana roles
-render docker-compose files.
+`/etc/sysctl.d/90-elasticsearch.conf` and
+`/etc/security/limits.d/90-elasticsearch.conf` run at first boot, driven by
+the `vm_max_map_count` Packer variable. Ansible's `common` role has zero
+involvement in OS configuration — no `vm_max_map_count` variable exists on
+the Ansible side at all, not even to verify it. It only checks Docker and
+the Compose plugin are present before the ES/kibana roles render
+docker-compose files. (The docker-compose base directory itself,
+`elastic_base_dir`, originally lived in this same decision — baked here via
+`mkdir -p ${elastic_base_dir}` — but moved out to Terraform + Ansible's
+`data_disk` role as of ADR-9 below, since it's now a mount point for a
+per-clone disk that doesn't exist at template-build time.)
 
 **Consequences.** Changing `vm_max_map_count` means rebuilding the template,
 full stop — there's no Ansible-side check that would catch a template built
-against a stale value. `elastic_base_dir` is the one value still duplicated:
-Packer bakes the directory, and `ansible/inventory/group_vars/all.yml` needs the same
-path to know where to render compose files, so that one has to be kept in
-sync by hand. This trade-off was made deliberately: every VM boots ready to
-run Elasticsearch immediately, and Ansible's job is reduced to "render
-docker-compose.yml/.env and run `docker compose up`," nothing host-level.
+against a stale value. This trade-off was made deliberately: every VM boots
+ready to run Elasticsearch immediately, and Ansible's job is reduced to
+"render docker-compose.yml/.env and run `docker compose up`," nothing
+host-level (`elastic_base_dir`'s mount is the one exception now — see
+ADR-9).
 
 ### ADR-2: Provisioning scripts are numbered and ordered, not roles
 
@@ -337,6 +343,46 @@ Agent version against `stack_version` and reinstalls via the same `.deb`
 URL pattern above if they've drifted** — Packer can only get new clones
 right going forward, it can't fix VMs cloned from an already-stale template.
 
+### ADR-9: OS disk shrunk to 40G, no `/opt` LV — data lives on a second Terraform disk instead
+
+**Context.** `TODO.md`'s "Improvements" section flagged this repo's disk
+sizing as a real problem, but the original hypothesis (every VM floor-priced
+at the biggest consumer, since bpg/proxmox can't shrink a cloned disk) missed
+the actual mechanism. `elastic_base_dir` (`/opt/elastic`) only ever held
+docker-compose projects and config — the real data, Elasticsearch's `esdata`
+named Docker volume, lives under Docker's default data-root
+(`/var/lib/docker`), which sits on the `root` LVM logical volume. That
+volume was hardcoded to a fixed `size: 25G` in `http/user-data.yml.tpl`,
+**independent of `disk_size`** — raising the overall Proxmox disk from 60G to
+any larger value would have grown the (unused-by-ES) `/opt` LV, not `root`.
+25G is not enough headroom for multiple days of real metrics/logs/APM
+volume across a homelab-sized fleet.
+
+**Decision.** Two changes, split across this template and Terraform/Ansible:
+
+- Here: dropped the `/opt` LVM logical volume entirely and let `root` take
+  the rest of the disk (`size: -1`) — `root` now only has to hold the OS,
+  packages, Trivy's DB, and the Elastic Agent binary, all small and static,
+  so `disk_size`'s default dropped from `60G` to `40G` accordingly.
+- Outside this template: `terraform/modules/vm`'s `disk` block gained a
+  second entry (`interface = "scsi1"`), sized per role, provisioned fresh
+  (not cloned) alongside the OS disk. Ansible's `data_disk` role mounts it
+  at `/opt` — the same path `elastic_base_dir` already used, so no
+  downstream var changes needed — and redirects Docker's data-root
+  (`/etc/docker/daemon.json`) into a subdirectory there. That's what
+  actually relocates `esdata` off the OS disk.
+
+**Consequences.** The OS disk is now uniform and small across every VM
+regardless of role, same as `vm_max_map_count`/ulimits/`elastic_base_dir`
+above — genuinely stateless, rebuild-template-and-move-on territory. Data
+volume is now a Terraform concern (`es_nodes`/`kibana_node`/
+`apm_server_node`'s `data_disk` field in `terraform/variables.tf`), sized
+per role independently of the template, and can grow without a template
+rebuild the way the old single-disk design couldn't. A 7-day Data Stream
+Lifecycle retention policy (`es_data_lifecycle` Ansible role) was added
+alongside this so disk growth is actually bounded, not just generously
+sized — see `docs/ANSIBLE.md`'s "Data retention" section.
+
 ## Variables reference
 
 Required (no default — set via `variables.auto.pkrvars.hcl` or `PKR_VAR_*` env):
@@ -348,15 +394,13 @@ Required (no default — set via `variables.auto.pkrvars.hcl` or `PKR_VAR_*` env
 | `ssh_private_key_file` | `variables.auto.pkrvars.hcl` — must pair with a key in `ssh_authorized_keys` |
 
 Everything else (VM sizing, packages, timezone, NTP, `vm_max_map_count`,
-`elastic_base_dir`, `install_trivy`, `trivy_version`, `trivy_report_path`,
-…) has a default in `variables.pkr.hcl` and only needs overriding in
-`variables.auto.pkrvars.hcl` when it should differ from that default.
+`install_trivy`, `trivy_version`, `trivy_report_path`, …) has a default in
+`variables.pkr.hcl` and only needs overriding in `variables.auto.pkrvars.hcl`
+when it should differ from that default. `elastic_base_dir` is **not** a
+Packer variable — it's Terraform/Ansible's, see ADR-9.
 
 ## Known coupling to watch
 
-- `elastic_base_dir` (here) must match `elastic_base_dir` in
-  `ansible/inventory/group_vars/all.yml` — Ansible still needs that path, unlike
-  `vm_max_map_count` which is Packer-only (see ADR-1).
 - `username` here must match the `ansible_user` Terraform writes into the
   generated inventory, since Ansible connects as that user.
 - `boot_iso_file` points at a specific Ubuntu ISO filename already uploaded
@@ -364,5 +408,8 @@ Everything else (VM sizing, packages, timezone, NTP, `vm_max_map_count`,
 - `trivy_report_path` (default `/var/log/trivy/report.json`) is where every
   VM's daily cron writes its latest scan — whatever eventually reads this
   path to ship reports into Elasticsearch (Ansible/Elastic Agent, per
-  `TODO.md`) needs to agree on this same path, the same way
-  `elastic_base_dir` is kept in sync today.
+  `TODO.md`) needs to agree on this same path.
+- `disk_size` (here) must stay large enough for the fixed LVM floor in
+  `http/user-data.yml.tpl` (`root(-1)` + `home(5G)` + `tmp(5G)` +
+  `boot(1G)` + `efi(512M)` + `bios(1M)`, currently ~11.5G before `root`
+  absorbs the rest) — see ADR-9.

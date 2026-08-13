@@ -1,0 +1,10 @@
+---
+# Applies a Data Stream Lifecycle retention policy to logs/metrics/APM data
+# streams. Runs after Fleet Server + every Elastic Agent are enrolled
+# (50-elastic-agent.yml) so the wildcard has something to match, and before
+# the health check.
+- name: Elasticsearch data retention
+  hosts: elasticsearch[0]
+  gather_facts: false
+  roles:
+    - es_data_lifecycle

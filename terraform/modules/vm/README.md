@@ -31,14 +31,15 @@ No modules.
 | <a name="input_cipassword"></a> [cipassword](#input\_cipassword) | cloud-init password | `string` | n/a | yes |
 | <a name="input_ciuser"></a> [ciuser](#input\_ciuser) | cloud-init username | `string` | `"ubuntu"` | no |
 | <a name="input_cores"></a> [cores](#input\_cores) | vCPU cores | `number` | `2` | no |
+| <a name="input_data_disk"></a> [data\_disk](#input\_data\_disk) | Second, per-role data disk in GB — not part of the template, provisioned fresh; mounted at /opt by Ansible's data\_disk role | `number` | n/a | yes |
 | <a name="input_datastore_id"></a> [datastore\_id](#input\_datastore\_id) | Proxmox datastore for disk + cloud-init | `string` | `"local-lvm"` | no |
 | <a name="input_description"></a> [description](#input\_description) | VM description / notes | `string` | `"Managed by Terraform (vm module)"` | no |
-| <a name="input_disk"></a> [disk](#input\_disk) | Disk size in GB (>= template disk) | `number` | `60` | no |
+| <a name="input_disk"></a> [disk](#input\_disk) | OS disk size in GB (>= template disk) | `number` | `40` | no |
 | <a name="input_gateway"></a> [gateway](#input\_gateway) | Default gateway | `string` | n/a | yes |
 | <a name="input_ip_cidr"></a> [ip\_cidr](#input\_ip\_cidr) | Static IPv4 in CIDR form, e.g. 192.168.68.30/22 | `string` | n/a | yes |
 | <a name="input_memory"></a> [memory](#input\_memory) | Memory in MB | `number` | `8192` | no |
 | <a name="input_name"></a> [name](#input\_name) | VM name | `string` | n/a | yes |
-| <a name="input_nameserver"></a> [nameserver](#input\_nameserver) | DNS server | `string` | n/a | yes |
+| <a name="input_nameserver"></a> [nameserver](#input\_nameserver) | DNS nameservers, in resolution order | `list(string)` | n/a | yes |
 | <a name="input_network_bridge"></a> [network\_bridge](#input\_network\_bridge) | Network bridge | `string` | `"vmbr0"` | no |
 | <a name="input_searchdomain"></a> [searchdomain](#input\_searchdomain) | DNS search domain | `string` | n/a | yes |
 | <a name="input_sshkeys"></a> [sshkeys](#input\_sshkeys) | Newline-delimited SSH public keys | `string` | n/a | yes |
