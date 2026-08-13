@@ -16,7 +16,6 @@ locals {
     ssh_authorized_keys = var.ssh_authorized_keys
     ntp_servers         = var.ntp_servers
     vm_max_map_count    = var.vm_max_map_count
-    elastic_base_dir    = var.elastic_base_dir
   })
 
   # Meta data (can also be templated if needed)

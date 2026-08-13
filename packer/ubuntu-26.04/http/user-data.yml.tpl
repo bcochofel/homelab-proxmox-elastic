@@ -94,24 +94,6 @@ autoinstall:
         devices:
           - partition-lvm
 
-      # Root logical volume
-      - type: lvm_partition
-        id: lv-root
-        volgroup: vg0
-        name: root
-        size: 25G
-
-      - type: format
-        id: format-root
-        volume: lv-root
-        fstype: ext4
-        label: ROOT
-
-      - type: mount
-        id: mount-root
-        device: format-root
-        path: /
-
       # Home logical volume
       - type: lvm_partition
         id: lv-home
@@ -150,24 +132,33 @@ autoinstall:
         path: /tmp
         options: nodev,nosuid
 
-      # Opt logical volume
+      # Root logical volume — takes the rest of the disk. Elasticsearch/Docker
+      # data no longer lives here (see the data_disk Ansible role and ADR-9 in
+      # this template's README) so this only has to hold the OS, packages,
+      # Trivy's DB, and the Elastic Agent binary. Must be last in the
+      # volgroup: curtin only allows the -1 "remainder" size on the final
+      # lvm_partition it processes, or it fails with "has negative size but
+      # is not final partition of LVM".
       - type: lvm_partition
-        id: lv-opt
+        id: lv-root
         volgroup: vg0
-        name: opt
+        name: root
         size: -1
 
       - type: format
-        id: format-opt
-        volume: lv-opt
+        id: format-root
+        volume: lv-root
         fstype: ext4
-        label: OPT
+        label: ROOT
 
       - type: mount
-        id: mount-opt
-        device: format-opt
-        path: /opt
-        options: noatime,nodiratime
+        id: mount-root
+        device: format-root
+        path: /
+
+  # No /opt logical volume here — /opt is where the Terraform-provisioned
+  # per-role data disk gets mounted by Ansible's data_disk role (see ADR-9
+  # in this template's README), not something Packer owns.
 
   # SSH Configuration
   ssh:
@@ -195,7 +186,6 @@ autoinstall:
     # Fix fstab fsck pass numbers (only root should be 0 1, others should be 0 2)
     - curtin in-target --target=/target -- sed -i 's|\(/home.*\) 0 1|\1 0 2|' /etc/fstab
     - curtin in-target --target=/target -- sed -i 's|\(/tmp.*\) 0 1|\1 0 2|' /etc/fstab
-    - curtin in-target --target=/target -- sed -i 's|\(/opt.*\) 0 1|\1 0 2|' /etc/fstab
     - curtin in-target --target=/target -- sed -i 's|\(/boot .*\) 0 1|\1 0 2|' /etc/fstab
     - curtin in-target --target=/target -- sed -i 's|\(/boot/efi.*\) 0 1|\1 0 2|' /etc/fstab
 
@@ -373,7 +363,3 @@ autoinstall:
 
       # Enable qemu-guest-agent
       - systemctl enable qemu-guest-agent
-
-      # Base directory for Elastic Stack docker-compose projects
-      - mkdir -p ${elastic_base_dir}
-      - chown ${username}:${username} ${elastic_base_dir}

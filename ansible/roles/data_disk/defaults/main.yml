@@ -1,0 +1,6 @@
+---
+# defaults file for data_disk
+#
+# data_disk_device, data_disk_mount_point, docker_data_root are cross-role
+# shared-ish vars — defined in inventory/group_vars/all.yml, not here, same
+# reasoning as fleet_bootstrap's/elasticsearch's shared vars.

@@ -44,8 +44,13 @@ variable "memory" {
 
 variable "disk" {
   type        = number
-  description = "Disk size in GB (>= template disk)"
-  default     = 60
+  description = "OS disk size in GB (>= template disk)"
+  default     = 40
+}
+
+variable "data_disk" {
+  type        = number
+  description = "Second, per-role data disk in GB — not part of the template, provisioned fresh; mounted at /opt by Ansible's data_disk role"
 }
 
 variable "datastore_id" {
@@ -71,8 +76,8 @@ variable "gateway" {
 }
 
 variable "nameserver" {
-  type        = string
-  description = "DNS server"
+  type        = list(string)
+  description = "DNS nameservers, in resolution order"
 }
 
 variable "searchdomain" {

@@ -19,7 +19,13 @@ to hold multiple OS templates over time and its own README stays generic.
 ## What this is
 
 Elastic Stack observability cluster on Proxmox (MS-01), built with the
-Packer -> Terraform -> Ansible pipeline:
+Packer -> Terraform -> Ansible pipeline. This repo is one of three that
+make up the homelab: `homelab-proxmox-core` (sibling repo — Caddy reverse
+proxy + CoreDNS/Pihole DNS, which this repo's VMs resolve against) and
+`homelab-proxmox-k3s` (sibling repo — K3s + ArgoCD + Traefik, runs the
+OpenTelemetry demo via GitOps, feeding this repo's APM Server rather than
+running its own separate observability stack). See `README.md`'s "Homelab
+architecture" section for the human-facing version.
 
 ```text
 Packer (template) -> Terraform (clone VMs + generate inventory) -> Ansible (configure)
@@ -101,6 +107,21 @@ free).
   approach applies (`vm.max_map_count`, ulimits, `/opt/elastic`) — see
   `packer/ubuntu-26.04/README.md`'s ADRs for how that template got stripped
   down relative to 24.04.
+- **Every VM has two disks: a small fixed OS disk (Packer/LVM) plus a
+  second, per-role Terraform-provisioned data disk mounted at `/opt`**, with
+  Docker's data-root redirected there via the `data_disk` Ansible role.
+  This isn't cosmetic: the OS disk's `root` LVM volume used to be a fixed
+  25G regardless of the overall Proxmox disk size, and Elasticsearch's data
+  (the `esdata` named Docker volume) lived under `/var/lib/docker` on that
+  volume — so bumping the Proxmox disk size alone never actually gave ES
+  more room. See `packer/ubuntu-26.04/README.md`'s ADR-9. A 7-day Data
+  Stream Lifecycle policy (`es_data_lifecycle` role, `logs-*`/`metrics-*`/
+  `traces-apm*`) bounds growth explicitly on top of this — see
+  `docs/ANSIBLE.md`'s "Data retention" section. Don't "fix" the two-disk
+  split back down to one; that's what caused the original problem.
+- **VMs resolve DNS against both `homelab-proxmox-core` nameservers**
+  (CoreDNS then Pihole, `terraform/variables.tf`'s `nameserver` list) for
+  redundancy, not just one.
 - **`ubuntu-26.04`'s initrd has no networking at all** (dracut's network
   modules are explicitly omitted, `scripts/15-fix-initrd-network.sh`). Not
   optional hardening — the first real `terraform apply` against this
@@ -364,29 +385,50 @@ don't correspond to them.
      }'
    ```
 
-   The response's `encoded` field is `ELASTICSEARCH_API_KEY`. TLS trust
-   uses the internal `es_certs` CA via a fingerprint (no CA-file option in
-   this client, unlike `curl --cacert`):
+   The response's `encoded` field is `ELASTICSEARCH_API_KEY`.
+
+   **`ELASTICSEARCH_CA_FINGERPRINT` does not work against this cluster —
+   confirmed empirically 2026-08-13, not just theorized.** The
+   `elasticsearch` role's `xpack.security.http.ssl.certificate` serves only
+   the leaf cert (`certs/node.crt`), never a chain including `ca.crt`
+   (`openssl s_client -showcerts` against port 9200 shows exactly one
+   certificate on the wire). `elastic-mcp`'s fingerprint check (traced into
+   its bundled `@elastic/transport`'s `UndiciConnection.js`) needs the CA
+   cert to arrive as part of the TLS handshake to compute its fingerprint;
+   since it never does, the connection fails during the handshake itself
+   (`unable to verify the first certificate`) before the fingerprint check
+   ever runs. `elastic-mcp` has no CA-file option (confirmed by reading
+   `es-client.js` end to end — only `caFingerprint` or `rejectUnauthorized`
+   exist), so the only working fix is `ELASTICSEARCH_TLS_VERIFY=false`,
+   dropping CA pinning entirely — same posture already accepted for the
+   Proxmox MCP server's `PROXMOX_VERIFY_TLS=false`. (Making
+   `caFingerprint` work would mean changing the `elasticsearch` role to
+   serve a full chain, i.e. `node.crt`+`ca.crt` concatenated — a change to
+   the live secured cluster's TLS config affecting every HTTP client, not
+   just this one diagnostic tool; decided against it as disproportionate.)
 
    ```bash
-   openssl x509 -in ansible/.certs/ca.crt -noout -fingerprint -sha256 | cut -d= -f2
-   ```
-
-   Then, local scope (same reasoning as GitHub/Proxmox MCP — never
-   `--scope project` with a literal secret):
-
-   ```bash
-   claude mcp add elastic \
+   claude mcp remove elastic -s user
+   claude mcp add elastic -s user \
      -e ELASTICSEARCH_URL=https://192.168.68.30:9200 \
      -e ELASTICSEARCH_API_KEY=<encoded-value-from-the-api-key-response> \
-     -e ELASTICSEARCH_CA_FINGERPRINT=<fingerprint-from-openssl-above> \
+     -e ELASTICSEARCH_TLS_VERIFY=false \
      -- npx -y elastic-mcp@1.1.0
    ```
 
-   Verify with `claude mcp list` (expect `✔ Connected`) — confirmed
-   working this way 2026-08-07. Any of the three ES nodes works as
-   `ELASTICSEARCH_URL`; the shared node cert's SAN list covers all of
-   them. `get_kibana_object` (reads `.kibana*` saved objects) was left
+   `-s user` matches how this server is actually configured today — it
+   lives in `~/.claude.json`'s user config, not a per-project scope.
+   `claude mcp list` showing `✔ Connected` only proves the MCP stdio
+   handshake succeeded, **not** that the underlying Elasticsearch calls
+   work — that handshake was green throughout this whole saga even while
+   every real query failed on both the fingerprint and (separately) a
+   dead API key. Verify for real with an actual tool call (e.g.
+   `cluster_health`). Also note: editing this config mid-session does not
+   hot-reload an already-connected stdio server — reconnect via `/mcp` or
+   restart Claude Code before re-testing. Confirmed end-to-end working
+   2026-08-13. Any of the three ES nodes works as `ELASTICSEARCH_URL`; the
+   shared node cert's SAN list covers all of them. `get_kibana_object`
+   (reads `.kibana*` saved objects) was left
    unwired — it needs a second, restricted-index grant on top of the role
    above; add it later via the Update API key API if needed, without
    rotating the key.

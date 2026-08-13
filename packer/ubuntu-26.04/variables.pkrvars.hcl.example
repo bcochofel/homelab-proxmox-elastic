@@ -10,7 +10,7 @@
 vm_id          = 9001
 vm_name        = "ubuntu-26.04-elastic"
 vm_description = "Ubuntu 26.04 with Docker and LVM"
-disk_size      = "60G"
+disk_size      = "40G"
 vm_cpu_cores   = 2
 vm_cpu_sockets = 1
 vm_memory      = 2048
@@ -18,7 +18,7 @@ network_bridge = "vmbr0"
 
 # Cloud-init Settings
 username = "ubuntu"
-hostname = "ubuntu-template"
+hostname = "ubuntu-elastic"
 timezone = "Europe/Lisbon"
 locale   = "en_US.UTF-8"
 
@@ -61,7 +61,6 @@ install_trivy = true
 install_elastic_agent = true
 # elastic_agent_version = "9.4.2"
 
-# Elastic Stack host requirements — defaults already match
-# ansible/group_vars/all.yml. Only override if you change both sides.
+# Elastic Stack host requirements — default already matches
+# ansible/inventory/group_vars/all.yml. Only override if you change both sides.
 # vm_max_map_count = 262144
-# elastic_base_dir = "/opt/elastic"

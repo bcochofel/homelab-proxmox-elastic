@@ -1,0 +1,57 @@
+---
+# tasks file for data_disk — runs first (playbooks/00-bootstrap.yml, ahead
+# of common), on a freshly Terraform-cloned host: formats and mounts the
+# second, per-role Terraform-provisioned disk (scsi1 -> data_disk_device) at
+# data_disk_mount_point (/opt), then redirects Docker's data-root there.
+# This is what actually gets Elasticsearch's data (and everything else
+# under elastic_base_dir) off the small, fixed OS disk — the OS disk's LVM
+# root volume used to be the real ceiling on ES data growth, independent of
+# how big the overall Proxmox disk was. See
+# packer/ubuntu-26.04/README.md's ADR-9.
+#
+# Designed for a fresh VM with no existing containers/images yet — this role
+# runs before any docker-compose role does. Not a live migration path for an
+# already-running node's existing /var/lib/docker.
+
+- name: Format the data disk as ext4 (no-op if already formatted)
+  community.general.filesystem:
+    fstype: ext4
+    dev: "{{ data_disk_device }}"
+  become: true
+
+- name: Mount the data disk at {{ data_disk_mount_point }}
+  ansible.posix.mount:
+    path: "{{ data_disk_mount_point }}"
+    src: "{{ data_disk_device }}"
+    fstype: ext4
+    state: mounted
+  become: true
+
+- name: Ensure the Docker data-root directory exists on the data disk
+  ansible.builtin.file:
+    path: "{{ docker_data_root }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0711"
+  become: true
+
+- name: Point Docker's data-root at the data disk
+  ansible.builtin.copy:
+    dest: /etc/docker/daemon.json
+    content: "{{ {'data-root': docker_data_root} | to_nice_json }}\n"
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  notify: Restart docker
+
+- name: Flush handlers so Docker is already on the new data-root before any compose role runs
+  ansible.builtin.meta: flush_handlers
+
+- name: Ensure Docker is running
+  ansible.builtin.systemd:
+    name: docker
+    state: started
+    enabled: true
+  become: true

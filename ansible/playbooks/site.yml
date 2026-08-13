@@ -16,5 +16,7 @@
   import_playbook: 35-fleet-server.yml
 - name: Elastic Agent
   import_playbook: 50-elastic-agent.yml
+- name: Elasticsearch data retention
+  import_playbook: 55-data-retention.yml
 - name: Health check
   import_playbook: 99-healthcheck.yml

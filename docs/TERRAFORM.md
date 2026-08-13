@@ -13,6 +13,20 @@ IPs via cloud-init, and generates `../ansible/inventory/hosts.ini`.
 `192.168.68.30-39` is reserved for this cluster; `.35`-`.39` are free for
 future nodes. No Logstash node — deliberately out of scope, not deferred.
 
+Every VM gets two disks from `modules/vm`: `scsi0` (the OS disk, resized
+from the cloned template, `disk` field on each node) and `scsi1` (a second,
+freshly-provisioned disk — not part of the template — sized per role via
+each node's `data_disk` field). `scsi1` is what Ansible's `data_disk` role
+mounts at `/opt` and redirects Docker's data-root onto — see
+`packer/ubuntu-26.04/README.md`'s ADR-9 for why a second disk exists instead
+of just a bigger `scsi0`. No extra Proxmox privilege is needed for it: it's
+provisioned through the same `VM.Config.Disk`/`Datastore.Allocate*`
+grants `scsi0` already needs (see the privilege table below).
+
+DNS (`nameserver`) is a list, resolved in order — both
+`homelab-proxmox-core` nameservers (CoreDNS then Pihole) for redundancy,
+not just one.
+
 - `modules/vm/` — reusable single-VM clone (any role: ES, Kibana, APM
   Server). Renamed from `modules/elastic_node/` once it stopped
   being Elastic-Stack-exclusive — the module itself never was

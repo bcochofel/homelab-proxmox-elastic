@@ -1,0 +1,5 @@
+---
+# defaults file for es_data_lifecycle
+#
+# es_data_retention is defined in inventory/group_vars/elasticsearch.yml
+# alongside the rest of the ES tuning knobs, not here.

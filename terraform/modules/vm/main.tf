@@ -41,6 +41,20 @@ resource "proxmox_virtual_environment_vm" "this" {
     ssd          = true
   }
 
+  # Second disk, not part of the template — bpg provisions this fresh at
+  # var.data_disk GB. Mounted at /opt by Ansible's data_disk role, which
+  # also redirects Docker's data-root there; this is where Elasticsearch's
+  # actual data (and everything else under elastic_base_dir) lives. See
+  # packer/ubuntu-26.04/README.md's ADR-9 for why this exists as a second
+  # disk instead of just a bigger scsi0.
+  disk {
+    interface    = "scsi1"
+    datastore_id = var.datastore_id
+    size         = var.data_disk
+    discard      = "on"
+    ssd          = true
+  }
+
   network_device {
     bridge = var.network_bridge
     model  = "virtio"
@@ -58,7 +72,7 @@ resource "proxmox_virtual_environment_vm" "this" {
     }
 
     dns {
-      servers = [var.nameserver]
+      servers = var.nameserver
       domain  = var.searchdomain
     }
 

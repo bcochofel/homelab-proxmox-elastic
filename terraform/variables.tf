@@ -47,51 +47,55 @@ variable "cluster_name" {
 
 variable "es_nodes" {
   type = list(object({
-    name    = string
-    vmid    = number
-    ip_cidr = string # e.g. 192.168.68.30/22
-    cores   = number
-    memory  = number # MB
-    disk    = number # GB
+    name      = string
+    vmid      = number
+    ip_cidr   = string # e.g. 192.168.68.30/22
+    cores     = number
+    memory    = number # MB
+    disk      = number # GB, OS disk (>= template disk size, see packer/ubuntu-26.04/README.md's ADR-9)
+    data_disk = number # GB, second disk mounted at /opt — this is where ES data actually lives
   }))
   description = "Elasticsearch node definitions"
   default = [
-    { name = "es-01", vmid = 9501, ip_cidr = "192.168.68.30/22", cores = 2, memory = 8192, disk = 60 },
-    { name = "es-02", vmid = 9502, ip_cidr = "192.168.68.31/22", cores = 2, memory = 8192, disk = 60 },
-    { name = "es-03", vmid = 9503, ip_cidr = "192.168.68.32/22", cores = 2, memory = 8192, disk = 60 },
+    { name = "es-01", vmid = 9501, ip_cidr = "192.168.68.30/22", cores = 2, memory = 8192, disk = 40, data_disk = 100 },
+    { name = "es-02", vmid = 9502, ip_cidr = "192.168.68.31/22", cores = 2, memory = 8192, disk = 40, data_disk = 100 },
+    { name = "es-03", vmid = 9503, ip_cidr = "192.168.68.32/22", cores = 2, memory = 8192, disk = 40, data_disk = 100 },
   ]
 }
 
 variable "kibana_node" {
   type = object({
-    name    = string
-    vmid    = number
-    ip_cidr = string
-    cores   = number
-    memory  = number
-    disk    = number
+    name      = string
+    vmid      = number
+    ip_cidr   = string
+    cores     = number
+    memory    = number
+    disk      = number
+    data_disk = number
   })
   description = "Kibana node definition"
   default = {
-    # disk >= 60: the ubuntu-26.04 template's disk_size is 60G and bpg can't
-    # shrink a cloned disk (see modules/vm/main.tf's disk block comment).
-    name = "kibana", vmid = 9510, ip_cidr = "192.168.68.33/22", cores = 2, memory = 4096, disk = 60
+    # disk >= the ubuntu-26.04 template's disk_size (bpg can't shrink a
+    # cloned disk — see modules/vm/main.tf's disk block comment). data_disk
+    # is the second, non-cloned disk mounted at /opt.
+    name = "kibana", vmid = 9510, ip_cidr = "192.168.68.33/22", cores = 2, memory = 4096, disk = 40, data_disk = 20
   }
 }
 
 variable "apm_server_node" {
   type = object({
-    name    = string
-    vmid    = number
-    ip_cidr = string
-    cores   = number
-    memory  = number
-    disk    = number
+    name      = string
+    vmid      = number
+    ip_cidr   = string
+    cores     = number
+    memory    = number
+    disk      = number
+    data_disk = number
   })
   description = "APM Server node definition"
   default = {
-    # disk >= 60: same constraint as kibana_node above.
-    name = "apm-server", vmid = 9520, ip_cidr = "192.168.68.34/22", cores = 2, memory = 4096, disk = 60
+    # Same constraint as kibana_node above.
+    name = "apm-server", vmid = 9520, ip_cidr = "192.168.68.34/22", cores = 2, memory = 4096, disk = 40, data_disk = 20
   }
 }
 
@@ -111,15 +115,15 @@ variable "network_bridge" {
 }
 
 variable "nameserver" {
-  type        = string
-  description = "DNS nameserver for cloud-init"
-  default     = "192.168.68.2"
+  type        = list(string)
+  description = "DNS nameservers for cloud-init, in resolution order — CoreDNS (ns1) then Pihole (ns2), homelab-proxmox-core's DNS pair"
+  default     = ["192.168.68.42", "192.168.68.43"]
 }
 
 variable "searchdomain" {
   type        = string
   description = "DNS search domain"
-  default     = "lab.local"
+  default     = "homelab.bcochofel.com"
 }
 
 # --------------------------------------------------------

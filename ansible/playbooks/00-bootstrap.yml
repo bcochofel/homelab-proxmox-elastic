@@ -3,4 +3,8 @@
   hosts: all
   gather_facts: true
   roles:
+    # data_disk runs first — it mounts the second, Terraform-provisioned
+    # disk at /opt and redirects Docker's data-root there before common's
+    # "Docker is present" check, or any compose role, ever runs.
+    - data_disk
     - common

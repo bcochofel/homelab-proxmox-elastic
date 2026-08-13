@@ -1,0 +1,59 @@
+---
+# tasks file for es_data_lifecycle
+#
+# Runs once (playbooks/55-data-retention.yml, hosts: elasticsearch[0]),
+# after Fleet Server + every Elastic Agent are enrolled (50-elastic-agent.yml
+# already ran) so the data streams the wildcard below matches actually
+# exist. Sets a Data Stream Lifecycle retention policy directly — simpler
+# and more upgrade-safe than editing Fleet's own ILM policies, and it's
+# what turns "the data disk is big" into an actual bound on growth instead
+# of just a hope. Idempotent and safe to rerun every site.yml execution: it
+# re-applies to whatever matches at the time, so new data streams (e.g. from
+# Phase 4's OSQuery/Defend integrations later) get covered automatically on
+# the next run without editing this role.
+#
+# force_basic_auth: true — this repo has hit ansible.builtin.uri not
+# sending Basic auth preemptively before (see fleet_bootstrap's tasks), so
+# every ES/Kibana API call here sets it explicitly rather than relying on
+# the lazy-auth default.
+
+- name: Wait for secured cluster health
+  ansible.builtin.uri:
+    url: "https://127.0.0.1:{{ es_http_port }}/_cluster/health"
+    user: elastic
+    password: "{{ es_elastic_password }}"
+    force_basic_auth: true
+    ca_path: "{{ elastic_base_dir }}/elasticsearch/certs/ca.crt"
+    return_content: true
+  register: _health
+  until: >-
+    _health.status == 200 and
+    _health.json.status in ['green', 'yellow']
+  retries: 30
+  delay: 10
+
+- name: Apply data retention to logs/metrics/APM data streams
+  ansible.builtin.uri:
+    url: "https://127.0.0.1:{{ es_http_port }}/_data_stream/logs-*,metrics-*,traces-apm*/_lifecycle"
+    method: PUT
+    user: elastic
+    password: "{{ es_elastic_password }}"
+    force_basic_auth: true
+    ca_path: "{{ elastic_base_dir }}/elasticsearch/certs/ca.crt"
+    body_format: json
+    body:
+      data_retention: "{{ es_data_retention }}"
+    # 404 (index_not_found_exception) means no data stream matches the
+    # wildcard yet — e.g. right after a from-scratch enroll, before any
+    # agent has shipped its first document. Not a failure: the next
+    # site.yml run picks up whatever exists by then.
+    status_code: [200, 404]
+  register: _lifecycle
+
+- name: Note if no data streams matched yet
+  ansible.builtin.debug:
+    msg: >-
+      No logs-*/metrics-*/traces-apm* data streams exist yet — retention
+      will be applied on the next site.yml run once agents have shipped
+      data.
+  when: _lifecycle.status == 404

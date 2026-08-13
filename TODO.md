@@ -204,22 +204,27 @@ Roughly in dependency order — later phases build on earlier ones.
 
 ## Improvements (revisit once there's more operational experience)
 
-- [ ] Split the template disk into OS-only + a second Terraform-provisioned
-      data disk, instead of the current single disk sized by the biggest
-      consumer (`terraform/variables.tf`'s per-node `disk`). Packer's
-      template would carry a small, fixed, uniform disk across all six
-      VMs; Terraform would attach a second disk per node, sized per role
-      (ES needs more than Kibana/APM), and Ansible would format/mount it
-      — likely at `/opt`, with Docker's `data-root` (`/etc/docker/
-      daemon.json`) pointed at a subdirectory there, since `esdata` in
-      `ansible/roles/elasticsearch/templates/docker-compose.yml.j2` is a
-      *named* Docker volume (lives under `/var/lib/docker/volumes/` by
-      default) — mounting a disk at `/opt` alone wouldn't actually capture
-      it without that redirect. Considered and deliberately deferred: a
-      same-day attempt hit the fact that bpg/proxmox can only grow a
-      cloned disk, never shrink it, which is itself a good reason to
-      revisit this once there's real experience running the current
-      single-disk template rather than guessing at split sizing upfront.
+- [x] Split the template disk into OS-only + a second Terraform-provisioned
+      data disk, instead of the previous single disk sized by the biggest
+      consumer. Landed alongside a full VM recreation (new template
+      hostname + DNS servers, see below): Packer's template now carries a
+      small, fixed 40G OS disk across all five VMs (`http/user-data.yml.tpl`'s
+      `/opt` LVM partition dropped, `root` takes the rest); Terraform's
+      `modules/vm` attaches a second disk per node (`data_disk` field —
+      100G for ES, 20G for Kibana/APM), and Ansible's new `data_disk` role
+      formats/mounts it at `/opt`, redirecting Docker's `data-root`
+      (`/etc/docker/daemon.json`) into a subdirectory there so `esdata`
+      (a *named* Docker volume, `ansible/roles/elasticsearch/templates/
+      docker-compose.yml.j2`) actually lands on it. Turned out the real
+      disk-space ceiling wasn't "biggest consumer sizing" as originally
+      guessed — it was the OS disk's `root` LVM volume being hardcoded to a
+      fixed 25G regardless of overall disk size, which no amount of
+      bumping `disk_size` alone would have fixed. See
+      `packer/ubuntu-26.04/README.md`'s ADR-9. A 7-day Data Stream
+      Lifecycle retention policy (`es_data_lifecycle` role,
+      `docs/ANSIBLE.md`'s "Data retention" section) was added alongside
+      this so growth is an actual enforced bound, not just "however big
+      the disk happens to be."
 - [x] Every VM was stuck on UTC regardless of the `timezone` Packer variable
       (defaults to `Europe/Lisbon`) — not an NTP sync problem, confirmed:
       `packer/ubuntu-26.04/http/user-data.yml.tpl`'s autoinstall

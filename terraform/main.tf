@@ -27,9 +27,10 @@ module "es" {
   target_node   = var.target_node
   template_vmid = local.template_vmid
 
-  cores  = each.value.cores
-  memory = each.value.memory
-  disk   = each.value.disk
+  cores     = each.value.cores
+  memory    = each.value.memory
+  disk      = each.value.disk
+  data_disk = each.value.data_disk
 
   ip_cidr        = each.value.ip_cidr
   gateway        = var.gateway
@@ -53,9 +54,10 @@ module "kibana" {
   target_node   = var.target_node
   template_vmid = local.template_vmid
 
-  cores  = var.kibana_node.cores
-  memory = var.kibana_node.memory
-  disk   = var.kibana_node.disk
+  cores     = var.kibana_node.cores
+  memory    = var.kibana_node.memory
+  disk      = var.kibana_node.disk
+  data_disk = var.kibana_node.data_disk
 
   ip_cidr        = var.kibana_node.ip_cidr
   gateway        = var.gateway
@@ -79,9 +81,10 @@ module "apm_server" {
   target_node   = var.target_node
   template_vmid = local.template_vmid
 
-  cores  = var.apm_server_node.cores
-  memory = var.apm_server_node.memory
-  disk   = var.apm_server_node.disk
+  cores     = var.apm_server_node.cores
+  memory    = var.apm_server_node.memory
+  disk      = var.apm_server_node.disk
+  data_disk = var.apm_server_node.data_disk
 
   ip_cidr        = var.apm_server_node.ip_cidr
   gateway        = var.gateway
