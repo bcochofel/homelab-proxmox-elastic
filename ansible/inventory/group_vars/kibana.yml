@@ -27,6 +27,13 @@ fleet_server_enabled: true
 fleet_server_policy_id: fleet-server-policy
 fleet_server_host_id: fleet-server-default
 
+# Kubernetes agents (homelab-proxmox-k3s cluster) enroll under their own
+# policy rather than homelab-agents-policy — the K3s side deploys Elastic
+# Agent itself (Helm/ArgoCD, not this repo's elastic_agent role), so unlike
+# homelab_agents_policy_id/apm_server_agent_policy_id this only needs to be
+# visible to fleet_bootstrap on this host, not to every VM via all.yml.
+kubernetes_agent_policy_id: kubernetes-agent-policy
+
 # Fleet encrypts the service tokens/API keys it stores as saved objects
 # with this key (xpack.encryptedSavedObjects.encryptionKey) — required for
 # POST /api/fleet/setup to succeed at all, verified empirically against a
