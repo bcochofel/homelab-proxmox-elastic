@@ -285,6 +285,64 @@
     status_code: 200
   no_log: true
 
+# Agents enrolled from the homelab-proxmox-k3s cluster (Elastic Agent
+# deployed there via Helm/ArgoCD, not this repo's elastic_agent role) get
+# their own policy rather than joining homelab-agents-policy — the
+# Kubernetes integration's collection model (DaemonSet + kube-state-metrics
+# cluster-wide instance) doesn't map onto the VM-shaped System+Docker pair
+# the other policy carries.
+- name: Check for an existing Kubernetes agent policy
+  ansible.builtin.uri:
+    url: "https://127.0.0.1:{{ kibana_port }}/api/fleet/agent_policies/{{ kubernetes_agent_policy_id }}"
+    validate_certs: false
+    user: elastic
+    password: "{{ es_elastic_password }}"
+    force_basic_auth: true
+    status_code: [200, 404]
+  register: _kubernetes_policy_check
+  no_log: true
+  check_mode: false
+
+- name: Create the Kubernetes agent policy
+  ansible.builtin.uri:
+    url: "https://127.0.0.1:{{ kibana_port }}/api/fleet/agent_policies?sys_monitoring=false"
+    method: POST
+    timeout: "{{ fleet_bootstrap_api_timeout }}"
+    validate_certs: false
+    user: elastic
+    password: "{{ es_elastic_password }}"
+    force_basic_auth: true
+    headers:
+      kbn-xsrf: "true"
+    body_format: json
+    body:
+      id: "{{ kubernetes_agent_policy_id }}"
+      name: "Kubernetes Agent Policy"
+      namespace: default
+      monitoring_enabled: [logs, metrics]
+    status_code: 200
+  when: _kubernetes_policy_check.status == 404
+  no_log: true
+
+- name: Ensure agent monitoring (logs + metrics) is enabled on the Kubernetes agent policy
+  ansible.builtin.uri:
+    url: "https://127.0.0.1:{{ kibana_port }}/api/fleet/agent_policies/{{ kubernetes_agent_policy_id }}"
+    method: PUT
+    timeout: "{{ fleet_bootstrap_api_timeout }}"
+    validate_certs: false
+    user: elastic
+    password: "{{ es_elastic_password }}"
+    force_basic_auth: true
+    headers:
+      kbn-xsrf: "true"
+    body_format: json
+    body:
+      name: "Kubernetes Agent Policy"
+      namespace: default
+      monitoring_enabled: [logs, metrics]
+    status_code: 200
+  no_log: true
+
 # Package versions are looked up live rather than pinned here — they drift
 # independently of stack_version (system 2.22.1, docker 2.15.2 as of this
 # writing; apm tracks stack_version, e.g. 9.4.2). A loop is safe for this
@@ -298,7 +356,7 @@
     password: "{{ es_elastic_password }}"
     force_basic_auth: true
     status_code: 200
-  loop: [system, docker, apm]
+  loop: [system, docker, apm, kubernetes]
   register: _fleet_package_lookup
   no_log: true
   check_mode: false
@@ -526,6 +584,87 @@
   when: _pkgpolicy_apm_check.status == 404
   no_log: true
 
+- name: Check for an existing System package policy on the Kubernetes agent policy
+  ansible.builtin.uri:
+    url: "https://127.0.0.1:{{ kibana_port }}/api/fleet/package_policies/system-kubernetes-agent"
+    validate_certs: false
+    user: elastic
+    password: "{{ es_elastic_password }}"
+    force_basic_auth: true
+    status_code: [200, 404]
+  register: _pkgpolicy_system_kubernetes_check
+  no_log: true
+  check_mode: false
+
+- name: Create the System package policy on the Kubernetes agent policy
+  ansible.builtin.uri:
+    url: "https://127.0.0.1:{{ kibana_port }}/api/fleet/package_policies"
+    method: POST
+    timeout: "{{ fleet_bootstrap_api_timeout }}"
+    validate_certs: false
+    user: elastic
+    password: "{{ es_elastic_password }}"
+    force_basic_auth: true
+    headers:
+      kbn-xsrf: "true"
+    body_format: json
+    body:
+      id: system-kubernetes-agent
+      name: system-kubernetes-agent
+      policy_ids: ["{{ kubernetes_agent_policy_id }}"]
+      package:
+        name: system
+        version: "{{ (_fleet_package_lookup.results | selectattr('item', 'equalto', 'system') | first).json.item.version }}"
+      inputs: {}
+    status_code: 200
+  when: _pkgpolicy_system_kubernetes_check.status == 404
+  no_log: true
+
+# inputs: {} takes every stream at whatever Fleet ships enabled by default
+# for this package (kubelet, kube-state-metrics, events, container logs —
+# confirmed against the package's own manifest.yml, not assumed; apiserver/
+# proxy/scheduler/controllermanager/audit-logs are the streams with no
+# self-sufficient default and are left at Fleet's own off-by-default). The
+# kube-state-metrics stream will sit enabled-but-empty until
+# kube-state-metrics is actually deployed on the K3s side — same
+# "scaffolded now, functional once the other side lands" shape as every
+# other cross-repo dependency here (see kubernetes_agent_policy_id above).
+- name: Check for an existing Kubernetes package policy on the Kubernetes agent policy
+  ansible.builtin.uri:
+    url: "https://127.0.0.1:{{ kibana_port }}/api/fleet/package_policies/kubernetes-kubernetes-agent"
+    validate_certs: false
+    user: elastic
+    password: "{{ es_elastic_password }}"
+    force_basic_auth: true
+    status_code: [200, 404]
+  register: _pkgpolicy_kubernetes_check
+  no_log: true
+  check_mode: false
+
+- name: Create the Kubernetes package policy on the Kubernetes agent policy
+  ansible.builtin.uri:
+    url: "https://127.0.0.1:{{ kibana_port }}/api/fleet/package_policies"
+    method: POST
+    timeout: "{{ fleet_bootstrap_api_timeout }}"
+    validate_certs: false
+    user: elastic
+    password: "{{ es_elastic_password }}"
+    force_basic_auth: true
+    headers:
+      kbn-xsrf: "true"
+    body_format: json
+    body:
+      id: kubernetes-kubernetes-agent
+      name: kubernetes-kubernetes-agent
+      policy_ids: ["{{ kubernetes_agent_policy_id }}"]
+      package:
+        name: kubernetes
+        version: "{{ (_fleet_package_lookup.results | selectattr('item', 'equalto', 'kubernetes') | first).json.item.version }}"
+      inputs: {}
+    status_code: 200
+  when: _pkgpolicy_kubernetes_check.status == 404
+  no_log: true
+
 - name: Ensure secrets cache directory exists
   ansible.builtin.file:
     path: "{{ es_secrets_local_cache_dir }}"
@@ -644,3 +783,43 @@
   become: false
   no_log: true
   when: not _apm_server_enrollment_token_cached.stat.exists and not ansible_check_mode
+
+# Handed to the homelab-proxmox-k3s repo out-of-band (copied manually, not
+# committed) for its own Elastic Agent Helm deployment to enroll with —
+# see that repo's Ansible role for how it lands as a Kubernetes Secret.
+- name: Check for cached Kubernetes agent enrollment token
+  ansible.builtin.stat:
+    path: "{{ es_secrets_local_cache_dir }}/kubernetes_agent_enrollment_token.txt"
+  delegate_to: localhost
+  become: false
+  register: _kubernetes_enrollment_token_cached
+
+- name: Mint the Kubernetes agent enrollment token
+  ansible.builtin.uri:
+    url: "https://127.0.0.1:{{ kibana_port }}/api/fleet/enrollment_api_keys"
+    method: POST
+    timeout: "{{ fleet_bootstrap_api_timeout }}"
+    validate_certs: false
+    user: elastic
+    password: "{{ es_elastic_password }}"
+    force_basic_auth: true
+    headers:
+      kbn-xsrf: "true"
+    body_format: json
+    body:
+      name: kubernetes-agent-enrollment
+      policy_id: "{{ kubernetes_agent_policy_id }}"
+    status_code: 200
+  register: _kubernetes_enrollment_token
+  no_log: true
+  when: not _kubernetes_enrollment_token_cached.stat.exists
+
+- name: Cache the Kubernetes agent enrollment token
+  ansible.builtin.copy:
+    content: "{{ _kubernetes_enrollment_token.json.item.api_key }}"
+    dest: "{{ es_secrets_local_cache_dir }}/kubernetes_agent_enrollment_token.txt"
+    mode: "0600"
+  delegate_to: localhost
+  become: false
+  no_log: true
+  when: not _kubernetes_enrollment_token_cached.stat.exists and not ansible_check_mode
