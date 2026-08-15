@@ -15,8 +15,9 @@ This repo is one of three that make up the homelab:
   stack: Elasticsearch, Kibana, Fleet Server, and APM Server.
 - **[`homelab-proxmox-core`](https://github.com/bcochofel/homelab-proxmox-core)**
   — edge routing and name resolution: the Caddy reverse proxy and the
-  CoreDNS + Pihole DNS pair every VM in the homelab (including this repo's)
-  resolves against.
+  CoreDNS + Pihole DNS stack. This repo's VMs resolve against CoreDNS's
+  primary + secondary instances specifically (Pihole is not in their
+  resolver list).
 - **[`homelab-proxmox-k3s`](https://github.com/bcochofel/homelab-proxmox-k3s)**
   — a K3s cluster managed via ArgoCD (GitOps), with Traefik as its
   in-cluster ingress. It runs the OpenTelemetry demo, which feeds its
@@ -204,6 +205,20 @@ set in `secrets.yaml` and exported from `ansible/.envrc` first — a preflight
 check fails loudly and early if either is missing. See
 [`docs/ANSIBLE.md`](docs/ANSIBLE.md)'s "TLS + auth" section.
 
+**Rebuilding VMs from scratch** (`terraform destroy` + `apply`, or any full
+recreation of es-01/02/03/kibana/apm-server): also clear
+`ansible/.secrets-cache/` before this run. Those cached files are the Fleet
+Server service-account token and the enrollment tokens `fleet_bootstrap`
+mints — both live inside Elasticsearch's security index / Fleet's
+`.fleet-*` indices, which a fresh ES cluster doesn't have, so the stale
+cache makes `fleet_bootstrap` skip re-minting them (its idempotency check
+only looks at whether the local file exists) and `fleet-server` crash-loops
+on `401 failed to authenticate service account`, hanging every agent's
+enrollment. Confirmed live 2026-08-15. Do **not** also clear
+`ansible/.certs/` — that CA/node cert cache is deliberately reused across
+rebuilds by design (see `docs/ANSIBLE.md`'s `es_certs` section); it isn't
+tied to ES's internal state the way the Fleet tokens are.
+
 Once done, see [Verify](#verify) below.
 
 ### Adding a node
@@ -232,8 +247,9 @@ Every VM has two disks: a small, fixed OS disk (Packer template, LVM) and a
 second, per-role Terraform-provisioned disk mounted at `/opt`, which is where
 Docker's data-root (and so every ES node's actual data) lives — see
 [Design decisions](#design-decisions) below for why. DNS resolution uses the
-homelab's CoreDNS + Pihole pair (`homelab-proxmox-core`), both set as
-resolvers for redundancy.
+homelab's CoreDNS primary + secondary pair (`homelab-proxmox-core`), both set
+as resolvers for redundancy (Pihole is deliberately not in this repo's
+resolver list).
 
 Each ES/Kibana VM runs a single-container Docker Compose stack. The three
 ES containers form one real multi-node cluster across the VMs. Heap is

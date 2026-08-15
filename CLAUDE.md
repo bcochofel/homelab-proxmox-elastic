@@ -119,9 +119,10 @@ free).
   `traces-apm*`) bounds growth explicitly on top of this — see
   `docs/ANSIBLE.md`'s "Data retention" section. Don't "fix" the two-disk
   split back down to one; that's what caused the original problem.
-- **VMs resolve DNS against both `homelab-proxmox-core` nameservers**
-  (CoreDNS then Pihole, `terraform/variables.tf`'s `nameserver` list) for
-  redundancy, not just one.
+- **VMs resolve DNS against both `homelab-proxmox-core` CoreDNS
+  nameservers** (primary then secondary, `terraform/variables.tf`'s
+  `nameserver` list) for redundancy, not just one. Pihole is deliberately
+  not in this list.
 - **`ubuntu-26.04`'s initrd has no networking at all** (dracut's network
   modules are explicitly omitted, `scripts/15-fix-initrd-network.sh`). Not
   optional hardening — the first real `terraform apply` against this
@@ -432,6 +433,52 @@ don't correspond to them.
    unwired — it needs a second, restricted-index grant on top of the role
    above; add it later via the Update API key API if needed, without
    rotating the key.
+5. **Terraform MCP** — official HashiCorp server
+   (`github.com/hashicorp/terraform-mcp-server`, pinned `v1.2.0`), for
+   current provider/module docs (same "don't hallucinate the schema"
+   problem CLAUDE.md already calls out for `bpg/proxmox`). Packer and
+   Ansible were evaluated too and both rejected: no legitimate Packer MCP
+   exists (search turned up nothing HashiCorp-affiliated), and the only
+   official Ansible option (`ansible/aap-mcp-server`) targets Ansible
+   Automation Platform, not the plain `ansible-playbook` this repo uses —
+   the community alternatives are single-maintainer repos with
+   playbook-execution/shell tools, which would undermine the "human click
+   every time" `ansible-playbook` policy above with no read-only
+   credential to fall back on (unlike Proxmox/Elasticsearch MCP).
+
+   The server also exposes HCP Terraform workspace/run-management tools
+   (create/apply/destroy workspaces) gated behind `ENABLE_TF_OPERATIONS`
+   (defaults `false`/unset) — leaving that unset is not enough on its own
+   given this repo's "never apply unprompted" stance, so it's additionally
+   restricted at the toolset level via `--toolsets=registry`, which drops
+   the workspace/run tools from what's even offered to the agent
+   regardless of the env var. No `TFE_TOKEN` is configured — registry
+   provider/module docs are public and need no auth; only HCP
+   Terraform/private-registry features would need one.
+
+   **Docker doesn't work from this WSL2 shell** — confirmed empirically:
+   `docker run ...` fails with `Cannot connect to the Docker daemon at
+   unix:///var/run/docker.sock`, because the `docker` binary on `PATH`
+   resolves to Rancher Desktop's Windows-side install
+   (`/mnt/c/Program Files/Rancher Desktop/...`), the same class of problem
+   as the Windows-side `claude` binary warned about in "Execution
+   environment & tooling decisions" above — and unlike that one, Rancher
+   Desktop being started/stopped on the Windows host directly affects
+   whether this resolves, so don't assume it's fixed just because Rancher
+   Desktop is running. A native Go toolchain was already present, so the
+   binary is built from source instead — no Docker dependency at all, and
+   avoids depending on Rancher Desktop being up every time Claude Code
+   spawns this stdio server:
+
+   ```bash
+   go install github.com/hashicorp/terraform-mcp-server/cmd/terraform-mcp-server@v1.2.0
+   claude mcp add terraform -s user -t stdio -- \
+     "$(go env GOPATH)/bin/terraform-mcp-server" stdio --toolsets=registry
+   ```
+
+   `-s user` matches the other MCP servers here. Verified with
+   `claude mcp list` (`✔ Connected`) — confirmed working this way
+   2026-08-15.
 
 ## Security sequencing
 
