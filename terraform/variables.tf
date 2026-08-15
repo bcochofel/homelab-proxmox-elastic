@@ -116,8 +116,8 @@ variable "network_bridge" {
 
 variable "nameserver" {
   type        = list(string)
-  description = "DNS nameservers for cloud-init, in resolution order — CoreDNS (ns1) then Pihole (ns2), homelab-proxmox-core's DNS pair"
-  default     = ["192.168.68.42", "192.168.68.43"]
+  description = "DNS nameservers for cloud-init, in resolution order — CoreDNS primary (ns1) then secondary (ns2), homelab-proxmox-core's DNS pair (Pihole deliberately not used here)"
+  default     = ["192.168.68.2", "192.168.68.3"]
 }
 
 variable "searchdomain" {

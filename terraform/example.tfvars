@@ -11,7 +11,7 @@ cluster_name = "homelab-observability"
 
 gateway        = "192.168.68.1"
 network_bridge = "vmbr0"
-nameserver     = ["192.168.68.42", "192.168.68.43"] # CoreDNS + Pihole (homelab-proxmox-core)
+nameserver     = ["192.168.68.2", "192.168.68.3"] # CoreDNS primary + secondary (homelab-proxmox-core)
 searchdomain   = "homelab.bcochofel.com"
 
 ciuser = "ubuntu"

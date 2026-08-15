@@ -24,8 +24,8 @@ provisioned through the same `VM.Config.Disk`/`Datastore.Allocate*`
 grants `scsi0` already needs (see the privilege table below).
 
 DNS (`nameserver`) is a list, resolved in order — both
-`homelab-proxmox-core` nameservers (CoreDNS then Pihole) for redundancy,
-not just one.
+`homelab-proxmox-core` CoreDNS nameservers (primary then secondary) for
+redundancy, not just one. Pihole is deliberately not in this list.
 
 - `modules/vm/` — reusable single-VM clone (any role: ES, Kibana, APM
   Server). Renamed from `modules/elastic_node/` once it stopped
