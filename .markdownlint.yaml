@@ -17,3 +17,10 @@ default: true
 # across every doc (CLAUDE.md, docs/*, READMEs) — hard-wrapping at 80
 # columns would fight that style for no benefit.
 MD013: false
+# CHANGELOG.md gets a fresh "### Features"/"### Bug Fixes" pair under every
+# version heading by design (conventional-changelog's own format) — without
+# siblings_only, MD024 treats those as document-wide duplicates instead of
+# comparing only headings under the same parent, which would fail every
+# future release's generated changelog entry.
+MD024:
+  siblings_only: true
