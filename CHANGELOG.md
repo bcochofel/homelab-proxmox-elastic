@@ -2,6 +2,14 @@
 
 All notable changes to this infrastructure project will be documented here.
 
+## [1.7.1](https://github.com/bcochofel/homelab-proxmox-elastic/compare/1.7.0...1.7.1) (2026-08-15)
+
+
+### Bug Fixes
+
+* **lint:** allow duplicate sibling headings in CHANGELOG.md's sections ([ce0ac85](https://github.com/bcochofel/homelab-proxmox-elastic/commit/ce0ac8528da5e81b319e71c437ad318b553311f9))
+* **release:** switch changelog preset from conventionalcommits to angular ([bf632f9](https://github.com/bcochofel/homelab-proxmox-elastic/commit/bf632f966942745a6484f7befc5009a594f2e9c0))
+
 ## [1.7.0](https://github.com/bcochofel/homelab-proxmox-elastic/compare/1.6.0...1.7.0) (2026-08-15)
 
 ### Bug Fixes
