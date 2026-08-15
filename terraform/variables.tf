@@ -48,8 +48,8 @@ variable "cluster_name" {
 variable "es_nodes" {
   type = list(object({
     name      = string
-    vmid      = number
-    ip_cidr   = string # e.g. 192.168.68.30/22
+    vmid      = optional(number) # omitted -> Proxmox auto-assigns the next available ID
+    ip_cidr   = string           # e.g. 192.168.68.30/22
     cores     = number
     memory    = number # MB
     disk      = number # GB, OS disk (>= template disk size, see packer/ubuntu-26.04/README.md's ADR-9)
@@ -57,16 +57,16 @@ variable "es_nodes" {
   }))
   description = "Elasticsearch node definitions"
   default = [
-    { name = "es-01", vmid = 9501, ip_cidr = "192.168.68.30/22", cores = 2, memory = 8192, disk = 40, data_disk = 100 },
-    { name = "es-02", vmid = 9502, ip_cidr = "192.168.68.31/22", cores = 2, memory = 8192, disk = 40, data_disk = 100 },
-    { name = "es-03", vmid = 9503, ip_cidr = "192.168.68.32/22", cores = 2, memory = 8192, disk = 40, data_disk = 100 },
+    { name = "es-01", ip_cidr = "192.168.68.30/22", cores = 2, memory = 8192, disk = 40, data_disk = 100 },
+    { name = "es-02", ip_cidr = "192.168.68.31/22", cores = 2, memory = 8192, disk = 40, data_disk = 100 },
+    { name = "es-03", ip_cidr = "192.168.68.32/22", cores = 2, memory = 8192, disk = 40, data_disk = 100 },
   ]
 }
 
 variable "kibana_node" {
   type = object({
     name      = string
-    vmid      = number
+    vmid      = optional(number) # omitted -> Proxmox auto-assigns the next available ID
     ip_cidr   = string
     cores     = number
     memory    = number
@@ -78,14 +78,14 @@ variable "kibana_node" {
     # disk >= the ubuntu-26.04 template's disk_size (bpg can't shrink a
     # cloned disk — see modules/vm/main.tf's disk block comment). data_disk
     # is the second, non-cloned disk mounted at /opt.
-    name = "kibana", vmid = 9510, ip_cidr = "192.168.68.33/22", cores = 2, memory = 4096, disk = 40, data_disk = 20
+    name = "kibana", ip_cidr = "192.168.68.33/22", cores = 2, memory = 4096, disk = 40, data_disk = 20
   }
 }
 
 variable "apm_server_node" {
   type = object({
     name      = string
-    vmid      = number
+    vmid      = optional(number) # omitted -> Proxmox auto-assigns the next available ID
     ip_cidr   = string
     cores     = number
     memory    = number
@@ -95,7 +95,7 @@ variable "apm_server_node" {
   description = "APM Server node definition"
   default = {
     # Same constraint as kibana_node above.
-    name = "apm-server", vmid = 9520, ip_cidr = "192.168.68.34/22", cores = 2, memory = 4096, disk = 40, data_disk = 20
+    name = "apm-server", ip_cidr = "192.168.68.34/22", cores = 2, memory = 4096, disk = 40, data_disk = 20
   }
 }
 
