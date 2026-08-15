@@ -10,12 +10,12 @@ module.exports = {
   "plugins": [
     [
       "@semantic-release/commit-analyzer",
-      { "preset": "conventionalcommits" }
+      { "preset": "angular" }
     ],
     [
       "@semantic-release/release-notes-generator",
       {
-        "preset": "conventionalcommits",
+        "preset": "angular",
         "writerOpts": {
           "commitsSort": ["scope", "subject"]
         }
