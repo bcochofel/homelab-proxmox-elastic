@@ -4,25 +4,74 @@ All notable changes to this infrastructure project will be documented here.
 
 ## [1.7.0](https://github.com/bcochofel/homelab-proxmox-elastic/compare/1.6.0...1.7.0) (2026-08-15)
 
+### Bug Fixes
+
+* **release:** make feature/*/fix/* prereleases actually work ([6d57014](https://github.com/bcochofel/homelab-proxmox-elastic/commit/6d57014cb572d63c2a61c63d99005f13ca6251f3))
+* **terraform:** correct nameserver default to CoreDNS primary + secondary ([df6adcf](https://github.com/bcochofel/homelab-proxmox-elastic/commit/df6adcfe4317291f91a265b3223d53fd74f62a9d))
+
+### Features
+
+* **terraform:** auto-assign VM IDs instead of hardcoding them ([6c822fd](https://github.com/bcochofel/homelab-proxmox-elastic/commit/6c822fd32d6cd431a03ada7543ffb6466362b883))
+
 ## [1.6.0](https://github.com/bcochofel/homelab-proxmox-elastic/compare/1.5.0...1.6.0) (2026-08-14)
+
+### Features
+
+* add Fleet Kubernetes agent policy for the K3s cluster ([023a1c4](https://github.com/bcochofel/homelab-proxmox-elastic/commit/023a1c43e220b6ba1e0a97f40848d3d410fbb146))
 
 ## [1.5.0](https://github.com/bcochofel/homelab-proxmox-elastic/compare/1.4.0...1.5.0) (2026-08-13)
 
+### Features
+
+* split VM disks into OS + data, add 7-day retention, rebuild on renamed template ([3bc4a69](https://github.com/bcochofel/homelab-proxmox-elastic/commit/3bc4a69f145eb7a43e96cacacd4a73b9d98eca18))
+
 ## [1.4.0](https://github.com/bcochofel/homelab-proxmox-elastic/compare/1.3.0...1.4.0) (2026-08-02)
+
+### Features
+
+* **ansible:** migrate Elastic Agents and APM to Fleet-managed (Phase 3 steps 2+3) ([96720c6](https://github.com/bcochofel/homelab-proxmox-elastic/commit/96720c68dd93a7f9c788813d614eec3c8b13b85b))
 
 ## [1.3.0](https://github.com/bcochofel/homelab-proxmox-elastic/compare/1.2.0...1.3.0) (2026-08-02)
 
+### Features
+
+* **ansible:** stand up Fleet Server (Phase 3, step 1) ([180ea51](https://github.com/bcochofel/homelab-proxmox-elastic/commit/180ea511e3ff8547c64899235fe8e0f4fa8755b5))
+
 ## [1.2.0](https://github.com/bcochofel/homelab-proxmox-elastic/compare/1.1.1...1.2.0) (2026-08-02)
+
+### Features
+
+* **ansible:** add Let's Encrypt TLS for Kibana's public URL ([61cd063](https://github.com/bcochofel/homelab-proxmox-elastic/commit/61cd0631babc2dae24b99d54644bed97379e5b0a))
 
 ## [1.1.1](https://github.com/bcochofel/homelab-proxmox-elastic/compare/1.1.0...1.1.1) (2026-08-01)
 
+### Bug Fixes
+
+* **packer:** let Europe/Lisbon timezone take effect, fix Kibana TLS docs ([f5f624e](https://github.com/bcochofel/homelab-proxmox-elastic/commit/f5f624e156d630625bb33e5833c6f6460762bbe7))
+
 ## [1.1.0](https://github.com/bcochofel/homelab-proxmox-elastic/compare/1.0.3...1.1.0) (2026-08-01)
+
+### Features
+
+* **ansible:** add TLS + auth (Phase 2) for the Elastic Stack cluster ([33dfc88](https://github.com/bcochofel/homelab-proxmox-elastic/commit/33dfc88f9b2ca23e3bff6f08ecbc373523a82bd8))
 
 ## [1.0.3](https://github.com/bcochofel/homelab-proxmox-elastic/compare/1.0.2...1.0.3) (2026-08-01)
 
+### Bug Fixes
+
+* **release:** stop double blank line in generated CHANGELOG.md ([3ba04f3](https://github.com/bcochofel/homelab-proxmox-elastic/commit/3ba04f38dd6bd793db7dc6e961d297d79d3889ac))
+
 ## [1.0.2](https://github.com/bcochofel/homelab-proxmox-elastic/compare/1.0.1...1.0.2) (2026-07-31)
 
+### Bug Fixes
+
+* **release:** stop double-escaping newlines in .releaserc.js ([5e0c745](https://github.com/bcochofel/homelab-proxmox-elastic/commit/5e0c745c0bc6a939f90ef808c70eae92902d8263))
+
 ## [1.0.1](https://github.com/bcochofel/homelab-proxmox-elastic/compare/1.0.0...1.0.1) (2026-07-31)
+
+### Bug Fixes
+
+* **ci:** drop ci.yml's push-to-main trigger — incompatible with no-commit-to-branch ([09cf76b](https://github.com/bcochofel/homelab-proxmox-elastic/commit/09cf76b1075656afdb9266f5bb19ca873f907a76))
 
 ## 1.0.0 (2026-07-31)
 
