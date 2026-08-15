@@ -2,6 +2,8 @@
 
 All notable changes to this infrastructure project will be documented here.
 
+## [1.7.0](https://github.com/bcochofel/homelab-proxmox-elastic/compare/1.6.0...1.7.0) (2026-08-15)
+
 ## [1.6.0](https://github.com/bcochofel/homelab-proxmox-elastic/compare/1.5.0...1.6.0) (2026-08-14)
 
 ## [1.5.0](https://github.com/bcochofel/homelab-proxmox-elastic/compare/1.4.0...1.5.0) (2026-08-13)
