@@ -20,6 +20,11 @@ repos:
     rev: v0.23.2
     hooks:
       - id: markdownlint-cli2
+        # CHANGELOG.md is semantic-release's own output (@semantic-release/
+        # changelog), not hand-authored — never hand-edit it to satisfy
+        # this hook, exclude it instead. Matches the same exclusion in the
+        # sibling homelab-proxmox-core / homelab-proxmox-k3s repos.
+        exclude: ^CHANGELOG\.md$
 
   # Packer formatting and validation (local: no maintained hook repo exists
   # for Packer HCL, so these shell out directly to the `packer` binary
