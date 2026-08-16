@@ -2,6 +2,15 @@
 
 All notable changes to this infrastructure project will be documented here.
 
+## [1.7.2](https://github.com/bcochofel/homelab-proxmox-elastic/compare/1.7.1...1.7.2) (2026-08-16)
+
+
+### Bug Fixes
+
+* **lint:** exclude generated CHANGELOG.md from markdownlint-cli2 ([ac92814](https://github.com/bcochofel/homelab-proxmox-elastic/commit/ac928141f8d81322184d7b1034e29079f920eac8))
+* **lint:** remove duplicate blank line in CHANGELOG.md ([3725b88](https://github.com/bcochofel/homelab-proxmox-elastic/commit/3725b88e7b7ef79c5c0e34b8e3a7177f3812cbc7))
+* **packer:** avoid DHCP hostname conflict with k3s repo template ([e80f562](https://github.com/bcochofel/homelab-proxmox-elastic/commit/e80f5624bbca2a833d6645b0e888904edcf0a474))
+
 ## [1.7.1](https://github.com/bcochofel/homelab-proxmox-elastic/compare/1.7.0...1.7.1) (2026-08-15)
 
 
