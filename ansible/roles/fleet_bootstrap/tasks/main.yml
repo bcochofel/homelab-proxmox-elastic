@@ -621,11 +621,17 @@
   no_log: true
 
 # inputs: {} takes every stream at whatever Fleet ships enabled by default
-# for this package (kubelet, kube-state-metrics, events, container logs —
-# confirmed against the package's own manifest.yml, not assumed; apiserver/
-# proxy/scheduler/controllermanager/audit-logs are the streams with no
-# self-sufficient default and are left at Fleet's own off-by-default). The
-# kube-state-metrics stream will sit enabled-but-empty until
+# for this package version — confirmed empirically wrong for kube-proxy: the
+# package manifest lists no default-enabled flag one way or the other for
+# apiserver/proxy/scheduler/controllermanager/audit-logs, and in practice
+# Fleet enabled kube-proxy metrics collection on creation, which then showed
+# every node's Elastic Agent as unhealthy in Fleet — this K3s cluster runs
+# Cilium with kubeProxyReplacement=true (see homelab-proxmox-k3s's CLAUDE.md),
+# so there's no kube-proxy process anywhere to scrape localhost:10249.
+# Explicitly disabling it here is a merge on top of Fleet's defaults (POST's
+# "simplified" inputs format, same as apmserver-apm above), not a full
+# inputs replacement — every other stream still gets Fleet's own default.
+# The kube-state-metrics stream will sit enabled-but-empty until
 # kube-state-metrics is actually deployed on the K3s side — same
 # "scaffolded now, functional once the other side lands" shape as every
 # other cross-repo dependency here (see kubernetes_agent_policy_id above).
@@ -660,10 +666,25 @@
       package:
         name: kubernetes
         version: "{{ (_fleet_package_lookup.results | selectattr('item', 'equalto', 'kubernetes') | first).json.item.version }}"
-      inputs: {}
+      inputs:
+        kube-proxy-kubernetes/metrics:
+          enabled: false
     status_code: 200
   when: _pkgpolicy_kubernetes_check.status == 404
   no_log: true
+
+# This only takes effect on a fresh policy (the create task above is
+# create-only, guarded by the 404 check) — it does not retroactively fix an
+# already-created policy. The live policy on this cluster was already fixed
+# by hand in Kibana's Fleet UI (Kubernetes Agent Policy -> kube-proxy input
+# -> disabled); that's a legitimate one-off correction, not something this
+# role tries to re-apply here. A PUT to update an *existing* package policy
+# requires the full current `inputs` object in the body (Fleet's update API
+# has no partial-merge mode the way create's simplified format does) — doing
+# that safely means a GET-then-PUT round trip, which wasn't worth the added
+# complexity for a value that's already correct in Kibana. If this policy is
+# ever deleted and recreated, the create task above will get it right
+# without a manual Kibana edit.
 
 - name: Ensure secrets cache directory exists
   ansible.builtin.file:
