@@ -1,2 +1,2 @@
-instance-id: ubuntu-template
-local-hostname: ubuntu-template
+instance-id: ubuntu-elastic
+local-hostname: ubuntu-elastic
