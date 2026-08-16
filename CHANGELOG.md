@@ -2,6 +2,13 @@
 
 All notable changes to this infrastructure project will be documented here.
 
+## [1.7.3](https://github.com/bcochofel/homelab-proxmox-elastic/compare/1.7.2...1.7.3) (2026-08-16)
+
+
+### Bug Fixes
+
+* **fleet:** disable kube-proxy metrics on Kubernetes Agent Policy creation ([4ed54fc](https://github.com/bcochofel/homelab-proxmox-elastic/commit/4ed54fc41c228c3d1e7a482baaa3faec8a1ff8cf))
+
 ## [1.7.2](https://github.com/bcochofel/homelab-proxmox-elastic/compare/1.7.1...1.7.2) (2026-08-16)
 
 
