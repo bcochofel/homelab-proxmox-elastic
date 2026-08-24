@@ -235,6 +235,141 @@ health only.
       already-diagnosed recurring issues, each behind its own
       least-privilege write credential — not a general write grant
 
+### Phase 6a — command audit trail (prerequisite, do before the SLO/burn-rate work above)
+
+Neither interactive zsh commands nor Claude Code's own Bash tool calls are
+logged anywhere today — no non-repudiation, no way to separate
+human-trajectory from agent-trajectory data for the SLO/burn-rate
+experiments above. Schema: ECS-native from the start (not a compact custom
+schema), so no remapping is needed once this ships to Elasticsearch.
+
+- [ ] zsh command-audit hook (`~/.zshrc` or a sourced file): `preexec`/
+      `precmd` registered via `add-zsh-hook` (additive — doesn't clobber
+      p10k's own hooks), appending one ECS-native NDJSON line per command
+      to `~/.command_audit.jsonl`. Fields: `@timestamp`, `user.name`,
+      `host.name`, `process.working_directory`, `process.command_line`,
+      `process.exit_code` (from `$?`, captured as the first statement in
+      `precmd`), `event.duration` (nanoseconds — needs `zmodload
+      zsh/datetime` for `$EPOCHREALTIME`), `event.kind: "event"`,
+      `event.category: ["process"]`, `labels.source: "zsh"`. Build the
+      JSON via `jq -n --arg`/`--argjson` (not string interpolation), so
+      arbitrary quoting/newlines in the command itself can't break the
+      NDJSON line.
+- [ ] Claude Code `PostToolUse` hook, matcher `"Bash"`, in the
+      **user-level** `~/.claude/settings.json` (confirmed: applies
+      machine-wide, to every session regardless of project directory — no
+      need to duplicate into each repo's own `.claude/settings.json`).
+      Pipes the hook's stdin JSON through `jq` into the same
+      `~/.command_audit.jsonl`, mapped to the same ECS fields plus
+      `labels.source: "claude-code"` and `labels.session_id` (from the
+      event's `session_id`). **Known gap, confirmed against current
+      Claude Code docs**: the Bash tool's `tool_response` is only `{type,
+      text}` — no structured exit-code field — so `process.exit_code`
+      will be absent/unreliable for Claude-Code-sourced entries. Accepted
+      Bronze-tier limitation, not worth parsing out of free-text output.
+- [ ] Later: Elastic Agent custom-logs (or Filebeat) input reading
+      `~/.command_audit.jsonl` with `json.keys_under_root: true` — zero
+      transformation needed since the schema is already ECS-native, ships
+      through the same Fleet Server this repo already runs.
+- [ ] Bronze/Silver/Gold framing for the resulting trajectory data (not a
+      checklist item, just the model to keep in mind when this lands in
+      Kibana): Claude Code's self-reported log + the zsh self-reported log
+      = Bronze (editable, self-reported); `auditd`→Elastic on the real
+      Proxmox VMs (see Phase 4 above) = Gold (kernel-level ground truth);
+      the WSL2 dev box has no working `auditd` (custom MS kernel, no audit
+      subsystem), so Bronze is the correct/only tier achievable there —
+      not a gap to fix, a property of the platform.
+
+### Identity separation: read-only / RW-CI / RW-human (shared across all 3 repos, not split per repo)
+
+Packer, Terraform, and Ansible each currently have exactly **one**
+credential per tool, shared across all three homelab repos and between
+interactive zsh use and anything Claude Code runs. There is no separate
+"agent" identity in this model — Claude Code write actions only happen
+when the human approves the existing `ask` prompt, so they run under the
+same RW-human credential the human already uses; attribution between "I
+typed this" and "Claude Code ran this" comes from the audit trail above
+(`labels.source`), not a different Proxmox credential. MCP tokens
+(`mcp@pve!mcp`) are already the correct read-only/agent tier by
+construction, since MCP tools are only ever invoked by an agent — no
+change needed there. What's actually missing is a read-only tier for
+Terraform/Packer's own dry-run subcommands (`plan`/`validate`), which
+today share the same RW token as `apply`/`build`.
+
+Target: **three tokens per process** (Packer, Terraform), shared across
+all three repos exactly like today's single token already is — not
+tripled per repo. Naming convention:
+`<pve-user>@pve!<tool>-<verb>-<tier>`, e.g.
+`terraform@pve!terraform-plan-readonly`,
+`terraform@pve!terraform-apply-ci` (reserved),
+`packer@pve!packer-validate-readonly`,
+`packer@pve!packer-build-ci` (reserved). The existing
+`packer@pve!packer-automation`/`terraform@pve!terraform-automation` names
+are misleading relative to how they're actually used today (interactively,
+not by automation) — an optional future rename to `*-apply-human`/
+`*-build-human`, not bundled into this pass since Proxmox tokens can't be
+renamed in place (would mean minting a replacement, revoking the old one,
+and updating `secrets.yaml`/`.envrc` in all three repos).
+
+- [ ] Mint one shared `<tool>-<verb>-readonly` token each for Packer and
+      Terraform (confirm whether it can reuse `mcp@pve!mcp`'s existing
+      role/privilege set, or needs its own). Wire it into whatever invokes
+      `plan`/`validate`, separate from the apply/build token — same value
+      added to `secrets.yaml` in core, elastic, *and* k3s.
+- [ ] Reserve (don't yet mint) one shared `<tool>-<verb>-ci` token each for
+      Packer and Terraform — created only when the self-hosted GitHub
+      Actions runner item above is actually picked up; also gets added to
+      all three repos' `secrets.yaml` once it exists.
+- [ ] No change needed to the existing shared apply/build token — already
+      correct for the RW-human tier despite its legacy `-automation` name.
+- [ ] Ansible's identity axis is SSH keys, not a Proxmox token — same
+      shared-identity pattern applies: one automation keypair, its public
+      half added as an additional `ssh_authorized_keys` entry in all three
+      repos' Packer templates (alongside the human's existing key, not
+      replacing it), reserved for a future CI runner.
+      `ansible-playbook --check` (Ansible's own dry-run mode) is the
+      practical read-only equivalent — no separate SSH identity needed for
+      that tier.
+- [ ] k3s-only addition (no equivalent here or in core, since there's only
+      one cluster): tracked in the k3s repo's own `TODO.md`.
+
+### Ansible secrets: move to inventory-scoped SOPS
+
+Ansible currently gets every secret indirectly: direnv decrypts the root
+`secrets.yaml` into shell env vars, `ansible/.envrc` re-exports the ones
+Ansible needs, and roles/`group_vars` read them via `lookup('env',
+'VAR_NAME')`. Target: give Ansible its own inventory-scoped,
+SOPS-encrypted file that Ansible decrypts directly at playbook-run time
+via the `community.sops` collection — cleaner separation from
+Packer/Terraform/HCP-Cloud secrets, and Ansible's secret values no longer
+have to pass through the shell's environment at all (a smaller exposure
+surface than env vars, which are visible via `/proc/<pid>/environ` and
+inherited by every child process).
+
+- [ ] Add `community.sops` to `ansible/requirements.yml`, installed the
+      same way other collections already are (`make ansible-deps`).
+      Provides a `community.sops.sops` lookup plugin (and optionally a
+      vars plugin for transparent auto-loading — decide which when
+      implementing).
+- [ ] Create `ansible/inventory/group_vars/all/secrets.sops.yaml` (or
+      split per host-group if a secret is genuinely group-scoped, e.g.
+      `ELASTIC_PASSWORD` only mattering to the `elasticsearch` group),
+      encrypted with the same age recipient already in this repo's
+      `.sops.yaml`. Add a matching `path_regex` creation rule to
+      `.sops.yaml`.
+- [ ] Move `ELASTIC_PASSWORD`/`KIBANA_SYSTEM_PASSWORD` there; update the
+      roles/`group_vars` currently doing `lookup('env', ...)` for them to
+      read the SOPS-sourced variable instead. Once verified working end to
+      end, remove both keys from the root `secrets.yaml` and
+      `ansible/.envrc`'s export list — the root file keeps only what
+      genuinely isn't Ansible's (Proxmox Packer/Terraform tokens,
+      `cipassword`, the HCP Terraform Cloud token).
+- [ ] Ownership boundary, same as today's `secrets.yaml` convention:
+      creating the new file's structure, the collection/`.sops.yaml`/role
+      wiring, and updating `group_vars` references are agent-doable.
+      Moving real secret *values* into the new file and deleting them from
+      the old one stays a user-owned edit.
+
 ## Improvements (revisit once there's more operational experience)
 
 - [x] Split the template disk into OS-only + a second Terraform-provisioned
