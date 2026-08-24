@@ -202,6 +202,39 @@ Roughly in dependency order — later phases build on earlier ones.
 - [ ] Self-hosted GitHub Actions runner — moves `terraform apply` off the
       local write credential entirely
 
+## Phase 6 — SRE AI-autonomy: health alerting & investigation (parallel track, health/monitoring only — not infrastructure deployment)
+
+Context: <https://sre.google/resources/practices-and-processes/ai-engineering-reliable-operations/>'s
+five-stage AI-autonomy ladder (L0 Manual → L1 Assisted Automation → L2
+Partial Autonomy (human approval) → L3 High Autonomy (bounded scenarios) →
+L4 Full Autonomy). Goal: move from "a human notices something and opens
+Claude Code" to properly automated detection + investigation for outages
+across all three homelab repos, with mitigation staying human (L1) and then
+approval-gated (L2) before any bounded autonomous remediation (L3) is
+considered. Deliberately excludes `packer`/`terraform`/`ansible` provisioning
+— that stays human-gated exactly as it is today; this track is about runtime
+health only.
+
+- [ ] Kibana alerting rules against telemetry already flowing: ES cluster
+      color (yellow/red), node down, disk watermark breach, APM error
+      rate/latency, host CPU/mem/disk thresholds (Elastic Agent metrics) —
+      this is the actual bottleneck today, since no automated detection
+      exists anywhere in the homelab yet
+- [ ] Trigger wiring from a fired alert to an investigation agent — start
+      poll-based (a scheduled agent checking for active alerts via the
+      Elastic MCP server) before considering a push-based webhook receiver
+- [ ] Standard investigation runbook: given a fired alert, fan out across
+      Elastic MCP (logs/traces/metrics) + the other repos' MCP servers,
+      produce Symptom → Evidence → Probable cause → Recommended remediation
+      → confidence/blast-radius, landed as a GitHub issue in the repo that
+      owns the failing component
+- [ ] L2 stepping stone: make the recommended remediation approvable
+      (issue comment/reaction) instead of retyped from scratch
+- [ ] L3 candidates (only after L1/L2 are proven): a short, explicit
+      catalog of pre-approved, self-verifying playbooks for
+      already-diagnosed recurring issues, each behind its own
+      least-privilege write credential — not a general write grant
+
 ## Improvements (revisit once there's more operational experience)
 
 - [x] Split the template disk into OS-only + a second Terraform-provisioned
