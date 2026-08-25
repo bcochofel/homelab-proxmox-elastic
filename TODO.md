@@ -280,58 +280,189 @@ schema), so no remapping is needed once this ships to Elasticsearch.
       subsystem), so Bronze is the correct/only tier achievable there —
       not a gap to fix, a property of the platform.
 
-### Identity separation: read-only / RW-CI / RW-human (shared across all 3 repos, not split per repo)
+### Identity separation: role-based principals (`ai-agent` / `bcochofel`-console / `ci`), shared across all 3 repos
 
-Packer, Terraform, and Ansible each currently have exactly **one**
-credential per tool, shared across all three homelab repos and between
-interactive zsh use and anything Claude Code runs. There is no separate
-"agent" identity in this model — Claude Code write actions only happen
-when the human approves the existing `ask` prompt, so they run under the
-same RW-human credential the human already uses; attribution between "I
-typed this" and "Claude Code ran this" comes from the audit trail above
-(`labels.source`), not a different Proxmox credential. MCP tokens
-(`mcp@pve!mcp`) are already the correct read-only/agent tier by
-construction, since MCP tools are only ever invoked by an agent — no
-change needed there. What's actually missing is a read-only tier for
-Terraform/Packer's own dry-run subcommands (`plan`/`validate`), which
-today share the same RW token as `apply`/`build`.
+**Supersedes** the earlier per-tool-token version of this section (a
+second Claude Desktop handover refined the model — rewritten here rather
+than left alongside the old version). There is still no separate "Claude
+Code" credential distinct from the human: Claude Code write actions only
+happen when the human approves the existing `ask` prompt, so they run
+under the human's own RW credential; attribution between "I typed this"
+and "Claude Code ran this" comes from the audit trail above
+(`labels.source`), not a different Proxmox credential. What changed:
+**one identity per role, shared across every tool** (not one pair per
+tool) — `terraform plan`/`packer validate`/Proxmox-MCP investigation all
+need the same category of Proxmox *read* access, so one RO token covers
+all of them, rather than minting `terraform-plan-readonly` and
+`packer-validate-readonly` separately.
 
-Target: **three tokens per process** (Packer, Terraform), shared across
-all three repos exactly like today's single token already is — not
-tripled per repo. Naming convention:
-`<pve-user>@pve!<tool>-<verb>-<tier>`, e.g.
-`terraform@pve!terraform-plan-readonly`,
-`terraform@pve!terraform-apply-ci` (reserved),
-`packer@pve!packer-validate-readonly`,
-`packer@pve!packer-build-ci` (reserved). The existing
-`packer@pve!packer-automation`/`terraform@pve!terraform-automation` names
-are misleading relative to how they're actually used today (interactively,
-not by automation) — an optional future rename to `*-apply-human`/
-`*-build-human`, not bundled into this pass since Proxmox tokens can't be
-renamed in place (would mean minting a replacement, revoking the old one,
-and updating `secrets.yaml`/`.envrc` in all three repos).
+Principal model (target state):
 
-- [ ] Mint one shared `<tool>-<verb>-readonly` token each for Packer and
-      Terraform (confirm whether it can reuse `mcp@pve!mcp`'s existing
-      role/privilege set, or needs its own). Wire it into whatever invokes
-      `plan`/`validate`, separate from the apply/build token — same value
-      added to `secrets.yaml` in core, elastic, *and* k3s.
-- [ ] Reserve (don't yet mint) one shared `<tool>-<verb>-ci` token each for
-      Packer and Terraform — created only when the self-hosted GitHub
-      Actions runner item above is actually picked up; also gets added to
-      all three repos' `secrets.yaml` once it exists.
-- [ ] No change needed to the existing shared apply/build token — already
-      correct for the RW-human tier despite its legacy `-automation` name.
+| Principal | Proxmox | HCP | MCP | Allowed |
+| --- | --- | --- | --- | --- |
+| `ai-agent` | `ai-agent@pve!ai-agent` **RO** | RO | all investigation MCPs (RO) | fmt/lint/validate/**plan**; RO investigation via MCP |
+| `bcochofel` (console) | `bcochofel@pve!console` **RW** | RW | — | everything incl. **apply** |
+| `ci` (reserved, later) | RW | RW | — | apply, in CI only |
+| `ai-agent-scheduled` (reserved, later) | RO | RO | investigation MCPs (RO) | unattended investigation only |
+
+Key insight: `terraform plan` is a read-only API operation — `fmt`/
+`tflint` need no creds, `validate -backend=false` needs none, `plan` needs
+Proxmox read + state read, only `apply` needs write. One RO token enables
+the full dry-run loop while `apply` is rejected at the API itself — the
+credential-layer version of the paper's plan="AI Alert" vs
+apply="AI Operator" split.
+
+**Verified this pass, not assumed**: the existing `mcp@pve!mcp` token's
+*live* privileges (`proxmox_whoami`) are `VM.Audit`, `Datastore.Audit`,
+`Sys.Audit`, `Pool.Audit` at `/`, inherited into `/sdn` already — so the
+`ai-agent` role below only adds one genuinely new privilege
+(`SDN.Audit`), the rest already exists as a working RO grant today.
+
+- [ ] Mint the Proxmox identities (verify exact privilege names against
+      the installed Proxmox version first):
+      ```
+      pveum role add AiAgentRO -privs "VM.Audit Datastore.Audit Sys.Audit Pool.Audit SDN.Audit"
+      pveum user add ai-agent@pve
+      pveum aclmod / -user ai-agent@pve -role AiAgentRO
+      pveum user token add ai-agent@pve ai-agent --privsep 1
+
+      pveum user add bcochofel@pve
+      pveum aclmod / -user bcochofel@pve -role Administrator   # or tighter custom role
+      pveum user token add bcochofel@pve console --privsep 1
+      ```
+      Consolidates the existing `mcp@pve!mcp` token into this one
+      `ai-agent` principal — one RO identity, not two. If `terraform plan`
+      fails a permission check, add the *specific* missing read privilege
+      the error names, never a write one.
+- [ ] Shared RO secrets file, **outside all repos**: `~/.secrets/secrets-ro.yaml`,
+      SOPS-encrypted to **two** age recipients — the existing main age key
+      (host/`bcochofel` reads) and a **new**, dedicated `ai-agent` age
+      identity (container reads only this file, generated fresh, its
+      private key never used for anything else). Contents:
+      `PROXMOX_VE_TOKEN=ai-agent@pve!ai-agent=...`, `PROXMOX_VE_ENDPOINT`,
+      `TF_TOKEN_app_terraform_io=<HCP RO>`. Supersedes the earlier "add the
+      same token value to all three repos' `secrets.yaml`" approach — each
+      repo's `.envrc` sources this one shared file instead of duplicating
+      the value three times.
+- [ ] Reserve (don't yet mint) the `ci` principal (Proxmox + HCP, both RW,
+      used only from CI) — created when the self-hosted GitHub Actions
+      runner item above is actually picked up.
+- [ ] Reserve (don't build yet) `ai-agent-scheduled`: a distinct RO
+      principal for future unattended/cron-triggered investigation, its
+      own `labels.source: "ai-agent-scheduled"` value in the audit-trail
+      work above, likely a headless container/CronJob in the k3s repo
+      (see that repo's `TODO.md`). Kept distinguishable from interactive
+      `ai-agent` from day one so attribution isn't retrofitted later.
 - [ ] Ansible's identity axis is SSH keys, not a Proxmox token — same
       shared-identity pattern applies: one automation keypair, its public
       half added as an additional `ssh_authorized_keys` entry in all three
       repos' Packer templates (alongside the human's existing key, not
-      replacing it), reserved for a future CI runner.
-      `ansible-playbook --check` (Ansible's own dry-run mode) is the
-      practical read-only equivalent — no separate SSH identity needed for
-      that tier.
+      replacing it), reserved for a future CI runner. **Not** for the
+      `ai-agent` devcontainer below — see the Ansible-secrets boundary
+      note further down for why the agent's Ansible remit stops at lint/
+      syntax-check.
 - [ ] k3s-only addition (no equivalent here or in core, since there's only
       one cluster): tracked in the k3s repo's own `TODO.md`.
+
+### Devcontainer: repo-scoped dry-run harness (per repo — elastic, k3s, core each get their own)
+
+The audit trail above proves *who ran what*; this is what actually
+prevents the wrong credential from being usable in the first place. Today
+direnv exports `bcochofel`'s RW token into the interactive shell, and
+Claude Code — a child process of that shell — inherits it silently, so
+the agent's `terraform plan` runs *as* `bcochofel` today regardless of the
+RO token existing. A devcontainer starts from an empty environment, so
+inheritance becomes off-by-default instead of on-by-default.
+
+**Verified this pass**: Claude Code has an official Dev Container Feature
+(`ghcr.io/anthropics/devcontainer-features/claude-code:1.0`) — confirmed
+via current docs that the Bash tool genuinely executes *inside* the
+container (not just VS Code's terminal panel), identically whether
+launched via the extension panel or `claude` in an integrated terminal.
+Default mount is repo-only; host secrets are never mounted unless
+explicitly added, and the docs themselves recommend injecting credentials
+via `containerEnv` rather than mounting credential files — exactly the
+pattern below.
+
+- [ ] `.devcontainer/devcontainer.json`: empty env by default; RO creds
+      injected via `containerEnv`, sourced from the shared RO secrets file
+      above at container start. Mount **read-only**: the shared RO secrets
+      file and the `ai-agent` age *private* key only — **never** the main
+      age key at `~/.config/sops/age/keys.txt` (would let the container
+      decrypt RW secrets). No `/var/run/docker.sock` mount (host-root
+      escape). Workspace mount is the current repo only.
+- [ ] `.devcontainer/Dockerfile`: pinned Terraform/Packer/tflint/
+      ansible-lint/Ansible/SOPS/age/direnv/jq/make, versions matched to
+      this repo's `Makefile`. Ansible in the image is for `ansible-lint` +
+      `--syntax-check` only — see the Ansible-secrets boundary note below
+      for why, not `--check --diff` against live hosts. Same
+      toolchain-baking pattern as the future CI runner — devcontainer and
+      CI runner are two renderings of one reproducible-harness idea.
+- [ ] Verify the boundary, documented in-repo (must pass before this is
+      considered done — failure here is silent, so prove it, don't assume
+      it):
+      ```
+      env | grep -E 'PROXMOX|TF_TOKEN'     # only RO tokens present
+
+      terraform fmt && terraform validate && terraform plan   # succeeds
+      terraform apply                       # REJECTED by the Proxmox API
+      ```
+      Plus a negative test: the `ai-agent` age key cannot decrypt a
+      RW-secret file. The `apply` rejection is what actually proves
+      attribution holds — the credential the container is given, not the
+      container boundary by itself.
+
+### Investigation MCPs: read-only by capability, not intent
+
+The MCP path is a **second, independent** boundary from the devcontainer
+above — the agent reaches infra two different ways (CLI tools inside the
+container; MCP servers, currently user-scoped, outside it), secured
+separately. The MCP token/RBAC is the real attribution + safety boundary
+here, not the OS process and not how the agent intends to use it — "RO"
+has to be true at the credential/capability level for every MCP server
+that can reach infra, verified with a negative test (attempt a mutating
+call, confirm it's refused), not assumed from how it's normally used.
+
+**Verified this pass, not assumed** — two of the five are already
+correct, no work needed:
+
+- [x] Terraform MCP — confirmed via `claude mcp list`: running
+      `--toolsets=registry`, no path to HCP workspaces or state at all.
+      No HCP credential involved, nothing to scope.
+- [x] Elastic MCP — confirmed via this repo's own `CLAUDE.md`
+      (Agent-tooling rollout, item 4): the `elastic-mcp` API key is
+      already scoped to `cluster: [monitor]`, `indices: [{names: [*],
+      privileges: [read, view_index_metadata]}]` — no write/delete/manage.
+
+Still needs work:
+
+- [ ] Proxmox MCP — repoint from `mcp@pve!mcp` to the new
+      `ai-agent@pve!ai-agent` token once the Proxmox-identity item above
+      lands (this is a consolidation of an already-correct privilege set,
+      not new scoping).
+- [ ] Kubernetes MCP and ArgoCD MCP — **not yet correct** (Kubernetes MCP
+      still points at the full-privilege `~/.kube/config`; ArgoCD MCP uses
+      the `admin` account's token). Real RBAC work needed — tracked in the
+      k3s repo's own `TODO.md`, since that's the only repo with a cluster.
+
+### Host shell hygiene
+
+**Revises** the earlier "no change needed" stance on the existing RW
+token, now that the devcontainer above is the primary enforcement
+mechanism but shouldn't be the *only* thing standing between a shell and
+the RW credential. The interactive shell should default to **RO** ambient
+(or no Proxmox token at all) via direnv; the RW `console` token is exposed
+only through a deliberate shell function (e.g. `tf-apply`, inlining
+`PROXMOX_VE_TOKEN=bcochofel@pve!console=...` for that one invocation),
+never a global `direnv export`. Makes any future accidental child-process
+inheritance harmless by construction.
+
+- [ ] Collapse the three duplicated per-repo `secrets.yaml` Proxmox-token
+      entries into the shared RO file above; per-repo `.envrc` keeps using
+      `source_up` for whatever's still genuinely per-repo.
+- [ ] Flip the default: RO (or empty) ambient in the interactive shell,
+      RW only via an explicit `tf-apply`-style function, not a standing
+      export.
 
 ### Ansible secrets: move to inventory-scoped SOPS
 
@@ -346,6 +477,18 @@ have to pass through the shell's environment at all (a smaller exposure
 surface than env vars, which are visible via `/proc/<pid>/environ` and
 inherited by every child process).
 
+**Decrypt-boundary refinement (added this pass)**: `ansible-playbook
+--check --diff` is *not* credential-free — check mode still resolves vars
+and renders templates, so it still decrypts the `community.sops` secrets.
+A service password has no read-only form, so letting the agent decrypt it
+would mean handing it the real secret. **The new `secrets.sops.yaml` file
+is encrypted only to the main (`bcochofel`) age recipient (and `ci`,
+later) — never to the `ai-agent` age identity from the devcontainer item
+above.** The agent's in-container Ansible remit stays `ansible-lint` +
+`--syntax-check` + reading/reasoning about playbooks — none of which need
+secrets. `ansible-playbook --check --diff` against live hosts is a
+`bcochofel`/CI action, not something the agent ever runs.
+
 - [ ] Add `community.sops` to `ansible/requirements.yml`, installed the
       same way other collections already are (`make ansible-deps`).
       Provides a `community.sops.sops` lookup plugin (and optionally a
@@ -354,9 +497,9 @@ inherited by every child process).
 - [ ] Create `ansible/inventory/group_vars/all/secrets.sops.yaml` (or
       split per host-group if a secret is genuinely group-scoped, e.g.
       `ELASTIC_PASSWORD` only mattering to the `elasticsearch` group),
-      encrypted with the same age recipient already in this repo's
-      `.sops.yaml`. Add a matching `path_regex` creation rule to
-      `.sops.yaml`.
+      encrypted **only** to the main age recipient already in this repo's
+      `.sops.yaml` (per the boundary above — not the `ai-agent` identity).
+      Add a matching `path_regex` creation rule to `.sops.yaml`.
 - [ ] Move `ELASTIC_PASSWORD`/`KIBANA_SYSTEM_PASSWORD` there; update the
       roles/`group_vars` currently doing `lookup('env', ...)` for them to
       read the SOPS-sourced variable instead. Once verified working end to
