@@ -398,6 +398,39 @@ pattern below.
       for why, not `--check --diff` against live hosts. Same
       toolchain-baking pattern as the future CI runner — devcontainer and
       CI runner are two renderings of one reproducible-harness idea.
+- [ ] **Varfiles are a third, ungoverned delivery mechanism — a
+      supplemental handover flagged this after the above was written.**
+      `terraform/terraform.tfvars` and `packer/*/variables.auto.pkrvars.hcl`
+      are gitignored but exist locally, and the devcontainer mounts the
+      repo — so they come along, and Terraform/Packer auto-load them
+      (`terraform.tfvars`, `*.auto.tfvars`) regardless of the `containerEnv`
+      tiering above. A varfile carrying a real write-path value would
+      bypass the whole RO/RW boundary through a door `containerEnv` never
+      touches.
+      **Audited this pass (variable names only, not values, across all
+      three repos — same shape everywhere)**: `terraform/terraform.tfvars`
+      looks already clean — `proxmox_endpoint`, `target_node`,
+      `vm_template`, `gateway`, `network_bridge`, `nameserver`,
+      `ciuser`/`sshkeys` (public keys), and similar — no
+      `cipassword`/`proxmox_api_token` in it (those already come through
+      `TF_VAR_*` env vars per this repo's `CLAUDE.md`, not a varfile).
+      `packer/*/variables.auto.pkrvars.hcl` is the one that needs care: it
+      carries `password_hash` (the cloud-init user's hashed password — a
+      write-path credential, even hashed) and `ssh_private_key_file` (a
+      path reference) alongside genuinely non-sensitive config (`vm_id`,
+      `disk_size`, `network_bridge`, `ssh_authorized_keys`, ...). Confirm
+      by reading real values (not just names) before relying on this.
+      **Resolution (recommended, per the handover)**: don't mount the
+      local varfiles into the container at all — the same startup step
+      that materializes RO env vars from the shared secrets file also
+      generates `terraform.auto.tfvars` + the Packer equivalent from
+      RO-tier values (real non-sensitive config + a dummy `password_hash`),
+      so the agent's varfile is a build artifact of the RO tier, not a
+      copy of a real-value file. Fallback: an explicit, committed
+      `ai-agent.tfvars`/`ci.pkrvars.hcl`, safe by construction, with real
+      per-host varfiles kept out of the repo directory entirely (moved
+      alongside the shared RO secrets file) so they can't be swept in by
+      the workspace mount regardless of intent.
 - [ ] Verify the boundary, documented in-repo (must pass before this is
       considered done — failure here is silent, so prove it, don't assume
       it):
@@ -407,10 +440,17 @@ pattern below.
       terraform fmt && terraform validate && terraform plan   # succeeds
       terraform apply                       # REJECTED by the Proxmox API
       ```
-      Plus a negative test: the `ai-agent` age key cannot decrypt a
-      RW-secret file. The `apply` rejection is what actually proves
-      attribution holds — the credential the container is given, not the
-      container boundary by itself.
+      Plus, for the varfile door specifically:
+      ```
+      cat *.tfvars *.auto.tfvars 2>/dev/null; cat *.pkrvars.hcl 2>/dev/null
+
+      grep -rE '(password|token|secret)' *.tfvars* *.pkrvars.hcl 2>/dev/null
+      ```
+      the first must show only non-sensitive + dummy values, the second
+      must find no real write-path secret. Plus a negative test: the
+      `ai-agent` age key cannot decrypt a RW-secret file. The `apply`
+      rejection is what actually proves attribution holds — the credential
+      the container is given, not the container boundary by itself.
 
 ### Investigation MCPs: read-only by capability, not intent
 
