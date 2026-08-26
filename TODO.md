@@ -334,16 +334,28 @@ apply="AI Operator" split.
       `ai-agent` principal — one RO identity, not two. If `terraform plan`
       fails a permission check, add the *specific* missing read privilege
       the error names, never a write one.
-- [ ] Shared RO secrets file, **outside all repos**: `~/.secrets/secrets-ro.yaml`,
-      SOPS-encrypted to **two** age recipients — the existing main age key
-      (host/`bcochofel` reads) and a **new**, dedicated `ai-agent` age
-      identity (container reads only this file, generated fresh, its
-      private key never used for anything else). Contents:
+- [ ] **Two shared files outside all repos, not one** — refined by a third
+      handover into a SOPS secret-management model (full model in the new
+      subsection right below). `~/.secrets/homelab-ro.yaml`: SOPS-encrypted
+      to **two** age recipients — the existing main age key (host/
+      `bcochofel` reads) and a **new**, dedicated `ai-agent` age identity
+      (container reads only this file, generated fresh, its private key
+      never used for anything else). Contents:
       `PROXMOX_VE_TOKEN=ai-agent@pve!ai-agent=...`, `PROXMOX_VE_ENDPOINT`,
-      `TF_TOKEN_app_terraform_io=<HCP RO>`. Supersedes the earlier "add the
-      same token value to all three repos' `secrets.yaml`" approach — each
-      repo's `.envrc` sources this one shared file instead of duplicating
-      the value three times.
+      `TF_TOKEN_app_terraform_io=<HCP RO>` — this is what lets `terraform
+      plan`'s provider auth (refreshing real state) succeed inside the
+      devcontainer without ever handing it a write credential.
+      `~/.secrets/homelab.yaml`: a **separate** file, encrypted to CI +
+      personal only — **Claude is not a recipient at all**, not even for a
+      read-only version. Holds the write-path Proxmox tokens
+      (`bcochofel@pve!console`, future `ci@pve!ci`) and the cloud-init/
+      Ansible-user password hash. See the new subsection below for why
+      these can't live in the same file as the RO token (SOPS recipients
+      are per-file, not per-key) and how dry-runs still succeed without
+      them (dummy variable defaults, not access). Supersedes the earlier
+      "one shared RO file, add the same token to all three repos'
+      `secrets.yaml`" approach — each repo's `.envrc` sources both shared
+      files instead of duplicating values three times.
 - [ ] Reserve (don't yet mint) the `ci` principal (Proxmox + HCP, both RW,
       used only from CI) — created when the self-hosted GitHub Actions
       runner item above is actually picked up.
@@ -363,6 +375,125 @@ apply="AI Operator" split.
       syntax-check.
 - [ ] k3s-only addition (no equivalent here or in core, since there's only
       one cluster): tracked in the k3s repo's own `TODO.md`.
+
+### Packer/Terraform variable tiers: the SOPS three-tier model (per repo — elastic, k3s, core each classify their own)
+
+A third handover, specifically resolving the "varfiles are a third
+ungoverned delivery mechanism" gap flagged in the Devcontainer section
+below — this **is** that item's resolution, not a separate concern.
+Today `*.pkrvars.hcl`/`*.tfvars` mix genuinely public config, internal-
+network-topology config, and (in one case) a write-path secret in the
+same gitignored-but-plaintext file, with no governance over which tier a
+value belongs to. Every Packer/Terraform variable belongs to exactly one
+tier, classified by **who needs to decrypt it**, not by how sensitive it
+feels:
+
+| Tier | Contents | Storage | Committed? | Claude a recipient? |
+| --- | --- | --- | --- | --- |
+| 1. Shared secrets | Proxmox write tokens, cloud-init/Ansible-user password hash — anything consumed identically by all three repos | `~/.secrets/homelab.yaml`, outside all repos | Yes (encrypted) | **No** — CI + personal only |
+| 2. Repo-local, non-secret-but-don't-publish | Subnets, DNS server IPs, internal hostnames/endpoints, service usernames, SSH *public* keys | `environment.enc.yaml`, per repo | Yes (encrypted) | **Yes** — so Claude can dry-run |
+| 3. Public-safe config | CPU/RAM/disk sizes, VM IDs, ISO paths, structural values | `*.pkrvars.hcl`/`*.tfvars`, per repo | Yes (cleartext) | n/a |
+
+**Standing rule**: anything shared across repos lives in the Tier-1
+`~/.secrets/homelab.yaml` and is never duplicated into any repo's
+`environment.enc.yaml` — the moment a value appears in two repos'
+environment files, the multi-repo rotation problem this whole model
+exists to avoid comes back. A Tier-2 candidate another repo also needs is
+actually Tier-1 — flag it, don't copy it.
+
+**Why the password hash is Tier-1, not Tier-2 (worth internalizing, not
+just following)**: it's shared across all three repos (same bootstrap
+user baked into every template) *and* moving it out of any Claude-
+readable file structurally guarantees Claude can't decrypt it — not by
+policy, by construction. A `$6$...` SHA-512-crypt hash isn't a working
+credential, but it's an offline-crackable artifact, worth the same
+protection as the token it sits next to.
+
+- [ ] **The dry-run default-value pattern** (this is what makes Tier-1
+      exclusion compatible with "plan/validate must still pass"): every
+      Tier-1 *variable* (as opposed to the RO provider-auth token in
+      `homelab-ro.yaml` above, which is a different mechanism entirely)
+      gets a valid-shaped dummy `default` declared in its `variable`
+      block:
+      ```hcl
+      variable "ci_password_hash" {
+        type      = string
+        sensitive = true
+        default   = "$6$dummy$dummydummydummydummydummydummydummydummy"
+      }
+      ```
+      Rules: use a valid-shaped dummy (some validation paths do light
+      shape checks), not `""`. **Do not use `ignore_changes` to hide the
+      dummy-vs-real diff** — it permanently stops reconciling that
+      attribute against config at all, masking *real* credential rotation
+      later, and it operates on resource attributes anyway, not input
+      variables, so it wouldn't even suppress a var-driven diff. The diff
+      a dry-run shows against the dummy is expected and correct — that
+      plan is never applied; `sensitive = true` is the legitimate way to
+      quiet the output. Real values are injected only in CI, from
+      `~/.secrets/homelab.yaml` / TFC dynamic credentials, where the real
+      `build`/`apply` runs.
+- [ ] **`.sops.yaml` creation rules** (`environment.enc.yaml` and
+      `~/.secrets/homelab.yaml` need different recipient sets — the
+      latter's rule belongs in a `.sops.yaml` co-located with it, e.g.
+      `~/.secrets/.sops.yaml`, not any repo's):
+      ```yaml
+      creation_rules:
+        - path_regex: environment\.enc\.yaml$
+          key_groups:
+            - age: [<claude_age_pubkey>, <ci_age_pubkey>, <personal_age_pubkey>]
+
+        - path_regex: homelab\.yaml$
+          key_groups:
+            - age: [<ci_age_pubkey>, <personal_age_pubkey>]
+      ```
+- [ ] **Per-repo `.envrc` shape** (two decryption sources — note the
+      Tier-1 line is expected to fail for Claude, which is the point):
+      ```bash
+      export PKR_VAR_proxmox_token=$(sops -d --extract '["proxmox_token"]' ~/.secrets/homelab.yaml)
+
+      eval "$(sops -d environment.enc.yaml | yq -o=json -I=0 \
+        'to_entries | .[] | "export PKR_VAR_" + .key + "=" + (.value | tojson | @sh)')"
+      ```
+      The whole-file loop on Tier-2 (not a naive `export X=$value`) handles
+      scalars, `list(string)`, and `map(string)` uniformly via
+      `tojson | @sh`, correctly quoting values with spaces or `+`/`/`
+      (SSH public keys). Private keys are Tier-1 always, stored as a
+      single `|` block scalar, never mixed into a Tier-2 list.
+
+**Audited this pass** (variable names only, across all three repos — see
+each repo's own `TODO.md` for its specific list): `terraform/terraform.tfvars`
+is mostly Tier-2/3 already (`proxmox_endpoint`, `gateway`, `nameserver` →
+Tier 2; `target_node`, `vm_template`, `network_bridge` → Tier 3;
+`sshkeys` → Tier 2 per the handover's explicit "public keys are fine"
+guidance) — `searchdomain` is a partial exception, since
+`homelab.bcochofel.com` is already disclosed throughout this repo's own
+committed `CLAUDE.md`/docs, so tiering it as sensitive here buys nothing;
+worth deciding case by case rather than blindly applying the table.
+`packer/*/variables.auto.pkrvars.hcl` needs the real work: `password_hash`
+is Tier-1 (confirmed present, needs the dummy-default treatment above),
+`ssh_authorized_keys` is Tier-2, the rest (`vm_id`, `disk_size`,
+`network_bridge`, `install_*` booleans, ...) is Tier-3. `ssh_private_key_file`
+is a path reference, not embedded key material — verify it already points
+outside the repo before assuming it's fine as Tier-3.
+
+- [ ] Per-repo task checklist (dry-run only, never `apply`/`build` —
+      open a PR, do not merge): inventory every current variable and
+      classify Tier 1/2/3 → flag Tier-1 candidates for the operator
+      rather than moving them without confirmation → create
+      `environment.enc.yaml` with Tier-2 values → reduce `.pkrvars.hcl`/
+      `.tfvars` to Tier-3 only → add dummy `default`s for every Tier-1
+      variable referenced → update `.envrc` to the two-source shape →
+      verify `packer validate`/`terraform plan` succeed (a diff against
+      dummies is a pass) → confirm no Tier-1 value got duplicated into
+      `environment.enc.yaml` → PR summarizing the classification table
+      and flagged Tier-1 items.
+- [ ] Definition of done: Tier-3 in cleartext per repo, Tier-2 in
+      `environment.enc.yaml` per repo, zero Tier-1 secrets in either;
+      no shared value duplicated across repos' environment files;
+      `validate`/`plan` green in all three repos on dummy defaults alone;
+      real secrets exist only in `~/.secrets/homelab.yaml` and CI's
+      injection path.
 
 ### Devcontainer: repo-scoped dry-run harness (per repo — elastic, k3s, core each get their own)
 
@@ -420,17 +551,16 @@ pattern below.
       path reference) alongside genuinely non-sensitive config (`vm_id`,
       `disk_size`, `network_bridge`, `ssh_authorized_keys`, ...). Confirm
       by reading real values (not just names) before relying on this.
-      **Resolution (recommended, per the handover)**: don't mount the
-      local varfiles into the container at all — the same startup step
-      that materializes RO env vars from the shared secrets file also
-      generates `terraform.auto.tfvars` + the Packer equivalent from
-      RO-tier values (real non-sensitive config + a dummy `password_hash`),
-      so the agent's varfile is a build artifact of the RO tier, not a
-      copy of a real-value file. Fallback: an explicit, committed
-      `ai-agent.tfvars`/`ci.pkrvars.hcl`, safe by construction, with real
-      per-host varfiles kept out of the repo directory entirely (moved
-      alongside the shared RO secrets file) so they can't be swept in by
-      the workspace mount regardless of intent.
+      **Resolution, now decided (superseded the "generate an RO varfile
+      in-container" idea sketched here originally)**: see the
+      "Packer/Terraform variable tiers" subsection above — real varfiles
+      never need to be mounted or generated at all, because Tier-1
+      variables get a dummy `default` declared directly in their
+      `variable` block, Tier-2 config lives in a Claude-readable
+      `environment.enc.yaml`, and Tier-3 stays cleartext. Nothing
+      real-valued is ever near the container through this door, by
+      construction rather than by a startup step that has to get it
+      right every time.
 - [ ] Verify the boundary, documented in-repo (must pass before this is
       considered done — failure here is silent, so prove it, don't assume
       it):
